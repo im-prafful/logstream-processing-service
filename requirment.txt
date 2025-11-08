@@ -1,0 +1,20 @@
+# --- Data Handling & Database Connection ---
+pandas          # For data manipulation and DataFrame operations
+sqlalchemy      # Core library for connecting to the PostgreSQL database
+psycopg2-binary # The specific Python driver for PostgreSQL
+
+# --- Core ML: Streaming & Embeddings ---
+river           # The core streaming ML library (for DenStream, scalers, encoders)
+sentence-transformers # For loading the 'all-MiniLM-L6-v2' text embedding model
+torch           # The backend engine required by sentence-transformers
+numpy           # For numerical operations, especially with embedding vectors
+
+# --- Model Persistence ---
+joblib          # For saving and loading your model (.pkl) files
+
+# --- Configuration ---
+python-dotenv   # Used to load database credentials from your .env file
+
+# --- API Server (For Future Use) ---
+fastapi         # The web framework for building your API
+uvicorn[standard] # The high-performance server to run FastAPI
