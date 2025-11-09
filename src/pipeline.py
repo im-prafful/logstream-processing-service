@@ -1,4 +1,3 @@
-
 from river import compose
 from river import preprocessing
 from sentence_transformers import SentenceTransformer
@@ -31,15 +30,16 @@ def create_streaming_pipeline():
         vec_keys.append(name)
 
     # Step 2: Handle numeric features (the 384 embedding values)This creates a River transformer — basically a small object that picks out only the keys you tell it to.
-    numeric_pipeline =  compose.Select(*vec_keys) | preprocessing.StandardScaler()
+    numeric_pipeline = compose.Select(*vec_keys) | preprocessing.StandardScaler()
 
-
-    category_pipeline = compose.Select("level", "source")|preprocessing.OneHotEncoder(handle_unknown="ignore")
+    category_pipeline = (
+        compose.Select("level", "source") | preprocessing.OneHotEncoder()
+    )
 
     # Step 4: This creates a parallel union — meaning both parts run on the same data but different columns.Internally, River calls this compose.TransformerUnion.
     # (the "+" symbol means "combine features" in River)
     pipeline = numeric_pipeline + category_pipeline
 
-    #Your create_streaming_pipeline() just built and returned one of River’s pipeline objects, which inherits those methods like learnOne(), transformOne()...
-    
-    return pipeline #this is a river object not a traditional python object thats why we can do pipeline.learnOne() during training
+    # Your create_streaming_pipeline() just built and returned one of River’s pipeline objects, which inherits those methods like learnOne(), transformOne()...
+
+    return pipeline  # this is a river object not a traditional python object thats why we can do pipeline.learnOne() during training
