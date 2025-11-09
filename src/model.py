@@ -6,7 +6,7 @@ pipeline_path = "models/river_pipeline.pkl"
 
 
 def create_new_model():
-    return cluster.DenStream(decaying_factor=0.01, epsilon=0.1, n_samples_init=1000)
+    return cluster.DenStream(decaying_factor=0.001, epsilon=0.3, n_samples_init=200)
 
 
 def save_model(model, pipeline):

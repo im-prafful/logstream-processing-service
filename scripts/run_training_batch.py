@@ -1,69 +1,83 @@
 import sys
 import pandas as pd
 
+# Allow imports from project root
 sys.path.append(sys.path[0] + "/..")
 
-# Import helper functions from your own code.
-from src.db_connector import get_db_engine, fetch_logs_batch
-from src.pipeline_utils import create_streaming_pipeline
-from src.embedding_utils import get_text_embedding
+from src.db_connector import (
+    get_db_engine,
+    fetch_logs_batch,
+    save_embedding,
+)
+from src.pipeline import get_text_embedding
 from src.model import create_new_model, save_model
+from src.pipeline import create_streaming_pipeline
 
 
 def main():
-    # Step 1: Connect to the database
+    print("Connecting to database...")
     engine = get_db_engine()
 
-    query = "SELECT * FROM logs LIMIT 1000;"
-    df = fetch_logs_batch(engine, query)
+    # Fetch initial batch of logs for training
+    query = "SELECT * FROM logs ORDER BY log_id ASC LIMIT 5000;"
+    df_logs = fetch_logs_batch(engine, query)
 
-    if df.empty:
-        print("No data found to train on.")
+    if df_logs.empty:
+        print("No logs found. Cannot train model.")
         return
 
+    print(f"Loaded {len(df_logs)} logs. Beginning initial model training...")
 
+    # Create a fresh pipeline and model for first-time training
     pipeline = create_streaming_pipeline()
     model = create_new_model()
 
-    print("Streaming initial batch into model...")
+    for _, log in df_logs.iterrows():
+        log_id = log["log_id"]
+        app_id = log["app_id"]
+        level = log["level"]
+        source = log["source"]
+        message = log["message"]
 
-    # Just a dictionary to keep track of clusters for each log
-    cluster_results = {}
+        # Step 1: Create text embedding (384-D vector)
+        embedding_vector = get_text_embedding(message)
 
-    # Step 5: Loop through each row (log entry) one by one
-    for _, log in df.iterrows():
+        # Step 2: Build ML feature dict (structured + embedding)
+        feature_dict = {"level": level, "source": source}
 
+        # Add embedding dimensions to feature dict
+        for index, emb_value in enumerate(embedding_vector):
+            feature_name = f"vec_{index}"
+            feature_dict[feature_name] = emb_value
 
-        embedding_vector = get_text_embedding(log["message"])
+        # Step 3: Train the pipeline and transform the record
+        pipeline.learn_one(feature_dict)
+        processed_features = pipeline.transform_one(feature_dict)
 
-         #Create a single data record (dictionary) for this log
-        x = {
-            "level": log["level"],
-            "source": log["source"],
-        }
+        # Step 4: Train the DenStream model incrementally
+        model.learn_one(processed_features)
 
-        # Add all 384 embedding values as "vec_0" to "vec_383"
-        for i in range(len(embedding_vector)):
-            feature_name = f"vec_{i}"
-            x[feature_name] = embedding_vector[i]
+        # Optionally: assign micro-cluster ID
+        cluster_id = model.predict_one(processed_features)
 
-        # Step 8: Learn scaling/encoding for this row and transform it
-        pipeline.learn_one(x)
-        processed_x = pipeline.transform_one(x)
+        # ✅ Save embedding + cluster to DB
+        save_embedding(
+            engine=engine,
+            log_id=log_id,
+            app_id=app_id,
+            embedding_vector=embedding_vector,
+            cluster_id=cluster_id,
+            level=level,
+            source=source,
+        )
 
-        # Step 9: Feed it into the model
-        model.learn_one(processed_x)
+    print("Initial streaming training completed.")
+    print(f"Model has {len(model.p_micro_clusters)} micro-clusters.")
 
-        # Optional: You could assign a cluster ID here
-        # cluster_id = model.predict_one(processed_x)
-        # cluster_results[log["log_id"]] = cluster_id
-
-    # Step 10: Training complete
-    print("Initial training complete.")
-    print("Model now has", len(model.p_micro_clusters), "micro-clusters.")
-
-    # Step 11: Save model and pipeline to disk
+    print("Saving trained pipeline and model to disk...")
     save_model(model, pipeline)
+
+    print("Training batch complete. Model and pipeline saved.")
 
 
 if __name__ == "__main__":
