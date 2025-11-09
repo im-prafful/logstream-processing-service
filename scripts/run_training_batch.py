@@ -14,7 +14,6 @@ def main():
     # Step 1: Connect to the database
     engine = get_db_engine()
 
-    # Step 2: Fetch logs from the database (only 1000 for now)
     query = "SELECT * FROM logs LIMIT 1000;"
     df = fetch_logs_batch(engine, query)
 
@@ -61,7 +60,7 @@ def main():
 
     # Step 10: Training complete
     print("Initial training complete.")
-    print("Model now has", len(model.micro_clusters), "micro-clusters.")
+    print("Model now has", len(model.p_micro_clusters), "micro-clusters.")
 
     # Step 11: Save model and pipeline to disk
     save_model(model, pipeline)
