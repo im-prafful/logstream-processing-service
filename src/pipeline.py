@@ -31,6 +31,7 @@ def create_streaming_pipeline():
 
     # Step 2: Handle numeric features (the 384 embedding values)This creates a River transformer — basically a small object that picks out only the keys you tell it to.
     numeric_pipeline = compose.Select(*vec_keys) | preprocessing.StandardScaler()
+    
 
     category_pipeline = (
         compose.Select("level", "source") | preprocessing.OneHotEncoder()

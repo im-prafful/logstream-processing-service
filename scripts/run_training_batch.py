@@ -9,9 +9,8 @@ from src.db_connector import (
     fetch_logs_batch,
     save_embedding,
 )
-from src.pipeline import get_text_embedding
+from src.pipeline import get_text_embedding, create_streaming_pipeline
 from src.model import create_new_model, save_model
-from src.pipeline import create_streaming_pipeline
 
 
 def main():
@@ -19,7 +18,7 @@ def main():
     engine = get_db_engine()
 
     # Fetch initial batch of logs for training
-    query = "SELECT * FROM logs ORDER BY log_id ASC LIMIT 5000;"
+    query = "SELECT * FROM logs where level in ('warning','error') ORDER BY log_id ASC LIMIT 2000;"
     df_logs = fetch_logs_batch(engine, query)
 
     if df_logs.empty:
@@ -60,7 +59,7 @@ def main():
         # Optionally: assign micro-cluster ID
         cluster_id = model.predict_one(processed_features)
 
-        # ✅ Save embedding + cluster to DB
+        # Save embedding + cluster to DB
         save_embedding(
             engine=engine,
             log_id=log_id,
