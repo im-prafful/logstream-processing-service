@@ -1,3 +1,4 @@
+import os
 import joblib
 from river import cluster
 
@@ -6,14 +7,19 @@ pipeline_path = "models/river_pipeline.pkl"
 
 
 def create_new_model():
-    return cluster.DenStream(decaying_factor=0.001, epsilon=0.3, n_samples_init=200)
+    return cluster.DenStream(decaying_factor=0.001, epsilon=0.7, n_samples_init=200)
 
 
 def save_model(model, pipeline):
+    # Ensure the 'models' directory exists before saving
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+
     print(f"Saving model to {model_path}...")
     joblib.dump(model, model_path)
+
     print(f"Saving pipeline to {pipeline_path}...")
     joblib.dump(pipeline, pipeline_path)
+
     print("Save complete.")
 
 

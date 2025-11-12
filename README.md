@@ -63,26 +63,6 @@ The model's success depends on a robust, _streaming-compatible_ pre-processing p
 
 ---
 
-## 📂 Project Structure
-
-logstream_processing_service/
-├── .gitignore
-├── models/ # Stores saved .pkl model files
-│ └── .gitkeep
-├── notebooks/ # Your experimental .ipynb files
-│ └── 01_data_exploration.ipynb
-├── scripts/ # One-time or scheduled-run scripts
-│ ├── run_training_batch.py # Run this ONCE to create the first model
-│ └── run_incremental_batch.py # Run this on a schedule (e.g., cron)
-├── src/ # Main source code for your service
-│ ├── **init**.py
-│ ├── db_connector.py # Handles database connection
-│ ├── pipeline.py # Defines the river pre-processing pipeline
-│ ├── model.py # Manages the DenStream model (load/save)
-│ └── main.py # (Future: Your FastAPI app)
-├── README.md # This file
-└── requirements.txt
-
 # All Python dependencies
 
 ---
