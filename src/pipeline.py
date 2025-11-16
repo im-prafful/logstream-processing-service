@@ -1,46 +1,47 @@
-from river import compose
-from river import preprocessing
+from river import compose, preprocessing, feature_extraction
 from sentence_transformers import SentenceTransformer
 
-
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
 embedding_dimension = 384
 
 
 def get_text_embedding(text):
-
+    """Create a 384-dimensional text embedding."""
     embedding = embedding_model.encode(text)
     return embedding
 
 
+def build_feature_dict(level, source, embedding_vector):
+    """
+    Merge categorical features + embedding into a single dict.
+    """
+    data = {"level": level, "source": source}
+
+    for i, v in enumerate(embedding_vector):
+        data[f"vec_{i}"] = v
+
+    return data
+
+
 def create_streaming_pipeline():
     """
-    Create a data processing pipeline for logs.
-    This pipeline handles:
-      - The numeric vector data (the 384 numbers from embeddings)
-      - The categorical data like 'level' and 'source'
+    Create an ML pipeline with:
+    - PCA dimensionality reduction
+    - Standard scaling
+    - OneHot encoding for level & source
     """
 
-    # Step 1: Make a list of all embedding feature names
-    # e.g. vec_0, vec_1, ..., vec_383
-    vec_keys = []
-    for i in range(embedding_dimension):
-        name = "vec_" + str(i)
-        vec_keys.append(name)
+    vec_keys = [f"vec_{i}" for i in range(embedding_dimension)]
 
-    # Step 2: Handle numeric features (the 384 embedding values)This creates a River transformer — basically a small object that picks out only the keys you tell it to.
-    numeric_pipeline = compose.Select(*vec_keys) | preprocessing.StandardScaler()
-    
-
-    category_pipeline = (
-        compose.Select("level", "source") | preprocessing.OneHotEncoder()
+    numeric_pipeline = (
+        compose.Select(*vec_keys)
+        | feature_extraction.PCA(n_components=50)
+        | preprocessing.StandardScaler()
     )
 
-    # Step 4: This creates a parallel union — meaning both parts run on the same data but different columns.Internally, River calls this compose.TransformerUnion.
-    # (the "+" symbol means "combine features" in River)
+    category_pipeline = compose.Select("level", "source") | preprocessing.OneHotEncoder(
+        on="learn"
+    )
+
     pipeline = numeric_pipeline + category_pipeline
-
-    # Your create_streaming_pipeline() just built and returned one of River’s pipeline objects, which inherits those methods like learnOne(), transformOne()...
-
-    return pipeline  # this is a river object not a traditional python object thats why we can do pipeline.learnOne() during training
+    return pipeline
