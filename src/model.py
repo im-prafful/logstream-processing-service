@@ -7,11 +7,17 @@ pipeline_path = "models/river_pipeline.pkl"
 
 
 def create_new_model():
-    return cluster.DenStream(decaying_factor=0.001, epsilon=0.5, n_samples_init=500)
+    """
+    Create a DenStream model tuned for semantically rich embeddings.
+    """
+    return cluster.DenStream(
+        decaying_factor=0.0005,
+        epsilon=0.8,
+        n_samples_init=300,
+    )
 
 
 def save_model(model, pipeline):
-    # Ensure the 'models' directory exists before saving
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
     print(f"Saving model to {model_path}...")
