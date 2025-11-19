@@ -24,7 +24,8 @@ def main():
     query = """
         SELECT *
         FROM logs
-        WHERE log_id NOT IN (SELECT log_id FROM log_embeddings)
+        WHERE level in ('warning','error') and
+        log_id NOT IN (SELECT log_id FROM log_embeddings)
         ORDER BY log_id ASC
         LIMIT 2000;
     """
