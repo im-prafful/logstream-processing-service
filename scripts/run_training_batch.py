@@ -58,7 +58,7 @@ def main():
         feature_dict = build_feature_dict(level, source, embedding_vector)
 
         # Step 3: Train pipeline (encoders/scalers)
-        pipeline = pipeline.learn_one(feature_dict)
+        pipeline.learn_one(feature_dict)
         processed_features = pipeline.transform_one(feature_dict)
 
         # Step 4: Train DenStream

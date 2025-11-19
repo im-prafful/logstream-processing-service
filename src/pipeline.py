@@ -33,14 +33,10 @@ def create_streaming_pipeline():
 
     vec_keys = [f"vec_{i}" for i in range(embedding_dimension)]
 
-    numeric_pipeline = (
-        compose.Select(*vec_keys)
-        | feature_extraction.RandomProjector(n_components=128)
-        | preprocessing.StandardScaler()
-    )
+    numeric_pipeline = compose.Select(*vec_keys) | preprocessing.StandardScaler()
 
-    category_pipeline = compose.Select("level", "source") | preprocessing.OneHotEncoder(
-        on="learn"
+    category_pipeline = (
+        compose.Select("level", "source") | preprocessing.OneHotEncoder()
     )
 
     pipeline = numeric_pipeline + category_pipeline
