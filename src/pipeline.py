@@ -35,7 +35,7 @@ def create_streaming_pipeline():
 
     numeric_pipeline = (
         compose.Select(*vec_keys)
-        | feature_extraction.PCA(n_components=50)
+        | feature_extraction.RandomProjector(n_components=128)
         | preprocessing.StandardScaler()
     )
 
