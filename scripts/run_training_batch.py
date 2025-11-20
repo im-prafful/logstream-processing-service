@@ -27,7 +27,7 @@ def main():
         FROM logs
         WHERE level IN ('warning','error')
         ORDER BY log_id ASC
-        LIMIT 2000;
+        LIMIT 5000;
     """
 
     df_logs = fetch_logs_batch(engine, query)

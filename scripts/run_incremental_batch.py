@@ -25,7 +25,7 @@ def main():
         FROM logs
         WHERE log_id NOT IN (SELECT log_id FROM log_embeddings)
         ORDER BY log_id ASC
-        LIMIT 2000;
+        LIMIT 5000;
     """
 
     df_new = fetch_logs_batch(engine, query)
