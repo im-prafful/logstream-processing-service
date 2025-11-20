@@ -12,7 +12,7 @@ def create_new_model():
     """
     return cluster.DenStream(
         decaying_factor=0.0005,
-        epsilon=0.8,
+        epsilon=0.9,
         n_samples_init=300,
     )
 

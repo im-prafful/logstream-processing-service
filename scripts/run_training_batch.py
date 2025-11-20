@@ -8,6 +8,7 @@ from src.db_connector import (
     get_db_engine,
     fetch_logs_batch,
     save_embedding,
+    save_pattern
 )
 from src.pipeline import (
     get_text_embedding,
@@ -27,7 +28,7 @@ def main():
         FROM logs
         WHERE level IN ('warning','error')
         ORDER BY log_id ASC
-        LIMIT 2000;
+        LIMIT 5000;
     """
 
     df_logs = fetch_logs_batch(engine, query)
@@ -91,6 +92,11 @@ def main():
 
     print("Training batch complete. Model and pipeline saved.")
 
+
+    #save to pattern table
+    save_pattern(
+       engine=engine
+    )
 
 if __name__ == "__main__":
     main()
