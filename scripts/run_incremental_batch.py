@@ -3,7 +3,7 @@ import pandas as pd
 
 sys.path.append(sys.path[0] + "/..")
 
-from src.db_connector import get_db_engine, fetch_logs_batch, save_embedding
+from src.db_connector import get_db_engine, fetch_logs_batch, save_embedding,save_pattern
 from src.pipeline import get_text_embedding, build_feature_dict
 from src.model import load_model, save_model
 
@@ -16,7 +16,7 @@ def main():
         print("ERROR: No pipeline found. Run runTrainingBatch.py first.")
         return
 
-    pipeline = pipeline.freeze()
+    #pipeline = pipeline.freeze()
 
     engine = get_db_engine()
 
@@ -24,6 +24,7 @@ def main():
         SELECT *
         FROM logs
         WHERE log_id NOT IN (SELECT log_id FROM log_embeddings)
+        AND level IN ('error','warning')
         ORDER BY log_id ASC
         LIMIT 2000;
     """
@@ -34,7 +35,7 @@ def main():
         print("No new logs found. Everything is processed.")
         return
 
-    print(f"🚀 Processing {len(df_new)} new logs...")
+    print(f" Processing {len(df_new)} new logs...")
 
     for _, log in df_new.iterrows():
         log_id = log["log_id"]
@@ -64,6 +65,14 @@ def main():
         )
 
     print("Saving updated model and pipeline...")
+    print('--------------------')
     save_model(model, pipeline)
 
+    save_pattern(engine=engine)
+    print('new patterns saved to pattern table')
+    print('------------------------')
     print("Incremental batch complete.")
+
+
+if __name__ == "__main__":
+    main()
