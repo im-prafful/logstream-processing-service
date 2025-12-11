@@ -3,9 +3,9 @@ from sqlalchemy import create_engine, text
 
 DB_USER = "masterUser"
 DB_PASS = "Admin$1234"
-DB_NAME = "Logstream_DB"
+DB_NAME = "LogStream_2.0"
 DB_HOST = "localhost"
-DB_PORT = "5433"
+DB_PORT = "5432"
 
 
 def get_db_engine():
@@ -33,7 +33,6 @@ def fetch_logs_batch(engine, query: str):
 
 
 def save_embedding(engine, log_id, app_id, embedding_vector, cluster_id, level, source):
-
     """Insert embedding + cluster into log_embeddings table."""
 
     insert_query = text(
@@ -46,8 +45,8 @@ def save_embedding(engine, log_id, app_id, embedding_vector, cluster_id, level, 
     """
     )
 
-    #Insert  cluster_id into logs table."""
-    insert_to_logs=text(
+    # Insert  cluster_id into logs table."""
+    insert_to_logs = text(
         """
             UPDATE logs 
             SET cluster_id = :cluster_id
@@ -70,13 +69,7 @@ def save_embedding(engine, log_id, app_id, embedding_vector, cluster_id, level, 
         )
 
         # Step B: Execute UPDATE on logs table in the SAME TRANSACTION
-        conn.execute(
-            insert_to_logs,
-            {
-                "log_id": log_id,
-                "cluster_id": cluster_id
-            }
-        )
+        conn.execute(insert_to_logs, {"log_id": log_id, "cluster_id": cluster_id})
 
 
 def save_pattern(engine):
@@ -87,7 +80,8 @@ def save_pattern(engine):
 
     # Fetch the first log entry for each cluster (the pattern)
     # along with the cluster's total count.
-    query = text("""
+    query = text(
+        """
         SELECT 
             concat_ws(' | ', l.source, l.level, l.message, l.parsed_data) AS merged_string,
             l.cluster_id,
@@ -101,7 +95,8 @@ def save_pattern(engine):
             HAVING cluster_id IS NOT NULL -- Only consider logs that have been clustered
         ) t
         ON l.cluster_id = t.cluster_id AND l.log_id = t.first_log;
-    """)
+    """
+    )
 
     # Insert log patterns into the log_patterns table.
     insert_pattern_query = text(
@@ -117,12 +112,12 @@ def save_pattern(engine):
         )
         """
     )
-    
+
     with engine.begin() as conn:
         # Step A: Fetch all pattern data
         result = conn.execute(query)
         # Fetch all rows, the schema is (merged_string, cluster_id, app_id, total_count)
-        rows = result.fetchall() 
+        rows = result.fetchall()
 
         print(f"Fetched {len(rows)} distinct log patterns.")
 
@@ -131,8 +126,10 @@ def save_pattern(engine):
             {
                 "app_id": row[2],  # app_id
                 "log_template": row[0],  # merged_string
-                "incident_count": row[3], # total_count (or 1 depending on intent, using total_count here)
-                "cluster_id": row[1]  # cluster_id
+                "incident_count": row[
+                    3
+                ],  # total_count (or 1 depending on intent, using total_count here)
+                "cluster_id": row[1],  # cluster_id
             }
             for row in rows
         ]
@@ -141,6 +138,3 @@ def save_pattern(engine):
         if insert_params:
             conn.execute(insert_pattern_query, insert_params)
             print(f"Inserted/updated {len(insert_params)} log patterns.")
-
-
-    
