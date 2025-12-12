@@ -1,0 +1,20 @@
+# --- Data Handling & Database Connection ---
+pandas
+sqlalchemy
+psycopg2-binary
+
+# --- Core ML: Streaming & Embeddings ---
+river
+sentence-transformers
+torch==2.1.0  # FORCED CPU VERSION to prevent large CUDA download issues
+numpy
+
+# --- Model Persistence ---
+joblib
+
+# --- Configuration ---
+python-dotenv
+
+# --- API Server (For Future Use) ---
+fastapi
+uvicorn[standard]
