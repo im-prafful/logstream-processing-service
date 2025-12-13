@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, text
 DB_USER = "masterUser"
 DB_PASS = "Admin$1234"
 DB_NAME = "LogStream_2.0"
-DB_HOST = "localhost"
+DB_HOST = "logstream-2-db.czegikcsabng.ap-south-1.rds.amazonaws.com"
 DB_PORT = "5432"
 
 
