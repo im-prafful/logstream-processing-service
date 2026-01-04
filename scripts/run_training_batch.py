@@ -4,7 +4,12 @@ import shutil
 
 sys.path.append(sys.path[0] + "/..")
 
-from src.db_connector import get_db_engine, fetch_logs_batch, save_pattern
+from src.db_connector import (
+    get_db_engine,
+    fetch_logs_batch,
+    save_embedding,
+    save_pattern,
+)
 from src.vector_engine import SemanticVectorEngine
 from src.pipeline import (
     get_text_embedding,
@@ -42,7 +47,11 @@ def main():
     pipeline = create_streaming_pipeline()
 
     for _, log in df_logs.iterrows():
-        # ... [Same training logic as before] ...
+        log_id = log["log_id"]
+        app_id = log["app_id"]
+        level = log["level"]
+        source = log["source"]
+
         full_text = f"{log['message']}. Parsed: {log['parsed_data']}"
         embedding = get_text_embedding(full_text)
         sem_id = vector_engine.get_semantic_group(embedding, log["log_id"])
@@ -51,6 +60,26 @@ def main():
         pipeline.learn_one(feats)
         proc_feats = pipeline.transform_one(feats)
         model.learn_one(proc_feats)
+
+        cluster_id = model.predict_one(proc_feats)
+
+        save_embedding(
+            engine=engine,
+            log_id=log_id,
+            app_id=app_id,
+            embedding_vector=embedding,
+            cluster_id=cluster_id,
+            level=level,
+            source=source,
+        )
+
+    # Log the number of micro-clusters detected
+    try:
+        print(
+            f"Initial streaming training completed. Model has {len(model.p_micro_clusters)} micro-clusters."
+        )
+    except:
+        print("Initial streaming training complete.")
 
     # 3. SAVE TO STAGING (The "Green" Copy)
     print(f"Training complete. Saving to STAGING ({STAGING_DIR})...")
