@@ -1,9 +1,10 @@
+from sqlalchemy import text  # Fixed import
 import sys
 import os
 
 sys.path.append(sys.path[0] + "/..")
 
-from src.db_connector import get_db_engine, fetch_logs_batch, save_embedding
+from src.db_connector import detect_and_create_incidents, get_db_engine, fetch_logs_batch, save_embedding, save_pattern
 from src.vector_engine import SemanticVectorEngine
 from src.pipeline import get_text_embedding, build_feature_dict
 from src.model import load_model
@@ -29,6 +30,11 @@ def main():
 
     engine = get_db_engine()
 
+    # Truncate embeddings table ONCE before processing
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE log_embeddings RESTART IDENTITY CASCADE;"))
+        print("Truncated log_embeddings table.")
+    
     # 2. PROCESS NEW LOGS (Read-Only Inference)
     query = """
         SELECT * FROM logs 
@@ -42,10 +48,10 @@ def main():
         print("No new logs.")
         return
 
-    print(f"Classifying {len(df_new)} logs using LIVE model...")
+    batch_size = len(df_new)  # Track batch size
+    print(f"Classifying {batch_size} logs using LIVE model...")
 
     for _, log in df_new.iterrows():
-        # ... [Same inference logic as before] ...
         full_text = f"{log['message']}. Parsed: {log['parsed_data']}"
         embedding = get_text_embedding(full_text)
         sem_id = vector_engine.get_semantic_group(embedding, log["log_id"])
@@ -66,6 +72,9 @@ def main():
             log["source"],
         )
 
+    save_pattern(engine=engine)
+    detect_and_create_incidents(engine=engine, batch_size=batch_size)  # Pass batch_size
+        
     print("Inference batch complete.")
 
 

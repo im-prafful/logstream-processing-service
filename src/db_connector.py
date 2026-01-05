@@ -1,5 +1,6 @@
 import pandas as pd
 from sqlalchemy import create_engine, text
+import math
 
 DB_USER = "masterUser"
 DB_PASS = "Admin$1234"
@@ -33,6 +34,7 @@ def fetch_logs_batch(engine, query: str):
 
 
 def save_embedding(engine, log_id, app_id, embedding_vector, cluster_id, level, source):
+
     """Insert embedding + cluster into log_embeddings table."""
 
     insert_query = text(
@@ -138,3 +140,146 @@ def save_pattern(engine):
         if insert_params:
             conn.execute(insert_pattern_query, insert_params)
             print(f"Inserted/updated {len(insert_params)} log patterns.")
+
+
+
+def calculate_dynamic_threshold(
+    total_batch_size: int,
+    cluster_incident_count: int,
+    total_clusters: int,
+    sensitivity: float = 1.0
+) -> int:
+    """
+    Calculate dynamic threshold based on current batch behavior.
+    
+    Parameters:
+    - total_batch_size: Total logs in current batch
+    - cluster_incident_count: Logs in this specific cluster in current batch
+    - total_clusters: Total number of clusters
+    - sensitivity: Tuning parameter (higher = harder to trigger)
+    
+    Returns:
+    - threshold: Minimum logs needed to trigger incident
+    """
+    
+    # Average logs per cluster in this batch
+    average_per_cluster = total_batch_size / total_clusters if total_clusters > 0 else 0
+    
+    # If a cluster has 2x the average, it's potentially anomalous
+    # Divide by sensitivity so higher sensitivity = lower threshold (easier to trigger)
+    threshold = (average_per_cluster * 2.0) / sensitivity
+    
+    # Bounds: minimum 10, maximum 80% of what this cluster actually has
+    threshold = max(10, min(threshold, int(cluster_incident_count * 0.8)))
+    
+    return int(threshold)
+
+
+
+
+
+def detect_and_create_incidents(engine, batch_size: int):
+    """
+    Detect abnormal clusters using dynamic threshold.
+    
+    Parameters:
+    - engine: SQLAlchemy engine
+    - batch_size: Total number of logs processed in this incremental batch
+    """
+    
+    with engine.begin() as conn:
+        # Get total number of clusters from the pattern table
+        total_clusters_result = conn.execute(text("""
+            SELECT COUNT(DISTINCT cluster_id) as total_clusters
+            FROM log_patterns
+        """)).fetchone()
+        
+        total_clusters = total_clusters_result[0]
+        
+        print(f"Batch stats: {batch_size} logs across {total_clusters} clusters")
+        
+        # Get the most recent timestamp from logs
+        last_timestamp_result = conn.execute(text("""
+            SELECT MAX(timestamp) FROM logs
+        """)).fetchone()
+        last_timestamp = last_timestamp_result[0]
+        
+        print(f"Processing logs from timestamp: {last_timestamp}")
+        
+        # Get total batch size (logs with the latest timestamp)
+        total_batch_size_result = conn.execute(text("""
+            SELECT COUNT(*) 
+            FROM logs 
+            WHERE timestamp >= :last_timestamp
+              AND level IN ('error', 'warning')
+              AND cluster_id IS NOT NULL
+        """), {"last_timestamp": last_timestamp}).fetchone()
+        total_batch_size = total_batch_size_result[0]
+        
+        print(f"Total batch size: {total_batch_size}")
+        
+        # Get log count per cluster for recent logs
+        cluster_result = conn.execute(text("""
+            SELECT cluster_id, COUNT(*) as log_count
+            FROM logs 
+            WHERE timestamp >= :last_timestamp
+              AND level IN ('error', 'warning')
+              AND cluster_id IS NOT NULL
+            GROUP BY cluster_id
+        """), {"last_timestamp": last_timestamp})
+        
+        rows = cluster_result.fetchall()
+        
+        print(f"Analyzing {len(rows)} clusters for anomalies...")
+        
+        for row in rows:
+            cluster_id = row[0]
+            cluster_log_count = row[1]
+            
+            # Calculate dynamic threshold
+            threshold = calculate_dynamic_threshold(
+                total_batch_size=total_batch_size,
+                cluster_incident_count=cluster_log_count,
+                total_clusters=total_clusters,
+                sensitivity=1.0
+            )
+            
+            print(f"Cluster {cluster_id}: log_count={cluster_log_count}, threshold={threshold}")
+            
+            # Only create incident if log_count exceeds dynamic threshold
+            if cluster_log_count >= threshold:
+                # Check if incident already exists
+                exists = conn.execute(
+                    text("""
+                        SELECT 1
+                        FROM incidents
+                        WHERE cluster_id = :cluster_id
+                          AND state = 'OPEN'
+                    """),
+                    {"cluster_id": cluster_id},
+                ).fetchone()
+                
+                if exists:
+                    conn.execute(
+                        text("""
+                            UPDATE incidents
+                            SET last_seen_at = now()
+                            WHERE cluster_id = :cluster_id
+                              AND state = 'OPEN'
+                        """),
+                        {"cluster_id": cluster_id},
+                    )
+                    print(f"Updated incident for cluster {cluster_id}")
+                else:
+                    conn.execute(
+                        text("""
+                            INSERT INTO incidents (
+                                cluster_id, state, last_seen_at
+                            )
+                            VALUES (
+                                :cluster_id, 'OPEN', now()
+                            )
+                        """),
+                        {"cluster_id": cluster_id},
+                    )
+                    print(f"INCIDENT CREATED for cluster {cluster_id} (log_count: {cluster_log_count}, threshold: {threshold})")
