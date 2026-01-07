@@ -1,5 +1,6 @@
 import pandas as pd
 from sqlalchemy import create_engine, text
+from datetime import datetime
 import math
 
 DB_USER = "masterUser"
@@ -31,6 +32,34 @@ def fetch_logs_batch(engine, query: str):
     except Exception as e:
         print(f"Error fetching data: {e}")
         return pd.DataFrame()
+
+
+
+def fetch_min_timestamp(engine, timestamp_query):
+    print(f"Fetching timestamp of the latest unprocessed log")
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(timestamp_query)
+            
+            # Fetch the first row
+            row = result.fetchone()
+            
+            if row is None:
+                print("No timestamp found")
+                return None
+            
+            # Extract the timestamp (first column)
+            timestamp_value = row[0]
+            
+            print(f"Fetched timestamp: {timestamp_value}, Type: {type(timestamp_value)}")
+            
+            return timestamp_value  # Returns datetime.datetime object
+    
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return None
+
+
 
 
 def save_embedding(engine, log_id, app_id, embedding_vector, cluster_id, level, source):
@@ -143,6 +172,8 @@ def save_pattern(engine):
 
 
 
+
+
 def calculate_dynamic_threshold(
     total_batch_size: int,
     cluster_incident_count: int,
@@ -178,7 +209,9 @@ def calculate_dynamic_threshold(
 
 
 
-def detect_and_create_incidents(engine, batch_size: int):
+
+
+def detect_and_create_incidents(engine, batch_size: int,global_timestamp):
     """
     Detect abnormal clusters using dynamic threshold.
     
@@ -195,38 +228,16 @@ def detect_and_create_incidents(engine, batch_size: int):
         """)).fetchone()
         
         total_clusters = total_clusters_result[0]
-        
-        print(f"Batch stats: {batch_size} logs across {total_clusters} clusters")
-        
-        # Get the most recent timestamp from logs
-        last_timestamp_result = conn.execute(text("""
-            SELECT MAX(timestamp) FROM logs
-        """)).fetchone()
-        last_timestamp = last_timestamp_result[0]
-        
-        print(f"Processing logs from timestamp: {last_timestamp}")
-        
-        # Get total batch size (logs with the latest timestamp)
-        total_batch_size_result = conn.execute(text("""
-            SELECT COUNT(*) 
-            FROM logs 
-            WHERE timestamp >= :last_timestamp
-              AND level IN ('error', 'warning')
-              AND cluster_id IS NOT NULL
-        """), {"last_timestamp": last_timestamp}).fetchone()
-        total_batch_size = total_batch_size_result[0]
-        
-        print(f"Total batch size: {total_batch_size}")
-        
+          
         # Get log count per cluster for recent logs
         cluster_result = conn.execute(text("""
             SELECT cluster_id, COUNT(*) as log_count
             FROM logs 
-            WHERE timestamp >= :last_timestamp
+            WHERE timestamp >= :global_timestamp
               AND level IN ('error', 'warning')
               AND cluster_id IS NOT NULL
             GROUP BY cluster_id
-        """), {"last_timestamp": last_timestamp})
+        """), {"global_timestamp": global_timestamp})  # ←PARAMETER BINDING
         
         rows = cluster_result.fetchall()
         
@@ -238,7 +249,7 @@ def detect_and_create_incidents(engine, batch_size: int):
             
             # Calculate dynamic threshold
             threshold = calculate_dynamic_threshold(
-                total_batch_size=total_batch_size,
+                total_batch_size=batch_size,
                 cluster_incident_count=cluster_log_count,
                 total_clusters=total_clusters,
                 sensitivity=1.0
