@@ -1,9 +1,17 @@
+from sqlalchemy import text  # Fixed import
 import sys
 import os
 
 sys.path.append(sys.path[0] + "/..")
 
-from src.db_connector import get_db_engine, fetch_logs_batch, save_embedding
+from src.db_connector import (
+    detect_and_create_incidents,
+    get_db_engine,
+    fetch_logs_batch,
+    save_embedding,
+    save_pattern,
+    fetch_min_timestamp,
+)
 from src.vector_engine import SemanticVectorEngine
 from src.pipeline import get_text_embedding, build_feature_dict
 from src.model import load_model
@@ -36,16 +44,29 @@ def main():
         AND level IN ('error','warning') 
         LIMIT 2000;
     """
+
+    timestamp_query = text(
+        """
+        SELECT MIN(timestamp) 
+        FROM logs 
+        WHERE level IN ('error','warning') 
+        AND cluster_id IS NULL
+    """
+    )
+
     df_new = fetch_logs_batch(engine, query)
+    global_timestamp = fetch_min_timestamp(
+        engine=engine, timestamp_query=timestamp_query
+    )
 
     if df_new.empty:
         print("No new logs.")
         return
 
-    print(f"Classifying {len(df_new)} logs using LIVE model...")
+    batch_size = len(df_new)  # Track batch size
+    print(f"Classifying {batch_size} logs using LIVE model...")
 
     for _, log in df_new.iterrows():
-        # ... [Same inference logic as before] ...
         full_text = f"{log['message']}. Parsed: {log['parsed_data']}"
         embedding = get_text_embedding(full_text)
         sem_id = vector_engine.get_semantic_group(embedding, log["log_id"])
@@ -65,6 +86,12 @@ def main():
             log["level"],
             log["source"],
         )
+
+    save_pattern(engine=engine)
+
+    detect_and_create_incidents(
+        engine=engine, batch_size=batch_size, global_timestamp=global_timestamp
+    )  # Pass batch_size
 
     print("Inference batch complete.")
 
