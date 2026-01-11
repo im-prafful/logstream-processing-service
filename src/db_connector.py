@@ -255,11 +255,11 @@ def detect_and_create_incidents(engine, batch_size: int, global_timestamp):
             )
 
             print(
-                f"Cluster {cluster_id}: log_count={cluster_log_count}, threshold={threshold}"
+                f"Cluster {cluster_id}: log_count={cluster_log_count}, threshold={threshold * 1.4}"
             )
 
             # Only create incident if log_count exceeds dynamic threshold
-            if cluster_log_count >= threshold:
+            if cluster_log_count >= 1.4 * threshold:
                 # Check if incident already exists
                 exists = conn.execute(
                     text(
