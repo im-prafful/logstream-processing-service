@@ -4,7 +4,6 @@ from sklearn.ensemble import IsolationForest
 import joblib
 import os
 
-# Filename for saving the volume model
 MODEL_FILE = "volume_model.pkl"
 
 
