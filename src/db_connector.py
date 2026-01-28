@@ -169,137 +169,93 @@ def save_pattern(engine):
             print(f"Inserted/updated {len(insert_params)} log patterns.")
 
 
-def calculate_dynamic_threshold(
-    total_batch_size: int,
-    cluster_incident_count: int,
-    total_clusters: int,
-    sensitivity: float = 1.0,
-) -> int:
+def save_cluster_stats(engine, batch_stats: dict):
     """
-    Calculate dynamic threshold based on current batch behavior.
-
-    Parameters:
-    - total_batch_size: Total logs in current batch
-    - cluster_incident_count: Logs in this specific cluster in current batch
-    - total_clusters: Total number of clusters
-    - sensitivity: Tuning parameter (higher = harder to trigger)
-
-    Returns:
-    - threshold: Minimum logs needed to trigger incident
+    Saves current batch stats to history.
+    batch_stats format: {cluster_id: count, ...}
     """
+    if not batch_stats:
+        return
 
-    # Average logs per cluster in this batch
-    average_per_cluster = total_batch_size / total_clusters if total_clusters > 0 else 0
-
-    # If a cluster has 2x the average, it's potentially anomalous
-    # Divide by sensitivity so higher sensitivity = lower threshold (easier to trigger)
-    threshold = (average_per_cluster * 2.0) / sensitivity
-
-    # Bounds: minimum 10, maximum 80% of what this cluster actually has
-    threshold = max(10, min(threshold, int(cluster_incident_count * 0.8)))
-
-    return int(threshold)
-
-
-def detect_and_create_incidents(engine, batch_size: int, global_timestamp):
+    # We timestamp this entry as 'NOW()' so we know when this batch happened
+    insert_query = text(
+        """
+        INSERT INTO cluster_volume_history (cluster_id, log_count, batch_timestamp)
+        VALUES (:cluster_id, :log_count, NOW())
     """
-    Detect abnormal clusters using dynamic threshold.
+    )
 
-    Parameters:
-    - engine: SQLAlchemy engine
-    - batch_size: Total number of logs processed in this incremental batch
+    params = [
+        {"cluster_id": cid, "log_count": count} for cid, count in batch_stats.items()
+    ]
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(insert_query, params)
+            print(f"Saved volume stats for {len(params)} clusters.")
+    except Exception as e:
+        print(f"Error saving cluster stats: {e}")
+
+
+def fetch_cluster_history(engine, window_size=5):
     """
+    Fetches the last N counts for ALL clusters to build the context window.
+    Returns: DataFrame with columns [cluster_id, log_count, batch_timestamp]
+    """
+    # This query retrieves the most recent 'window_size' entries for every cluster
+    query = text(
+        f"""
+        WITH ranked_history AS (
+            SELECT 
+                cluster_id, 
+                log_count, 
+                batch_timestamp,
+                ROW_NUMBER() OVER (PARTITION BY cluster_id ORDER BY batch_timestamp DESC) as rn
+            FROM cluster_volume_history
+        )
+        SELECT cluster_id, log_count, batch_timestamp
+        FROM ranked_history
+        WHERE rn <= :window_size
+        ORDER BY cluster_id, batch_timestamp ASC;
+    """
+    )
+
+    try:
+        df = pd.read_sql(query, engine, params={"window_size": window_size})
+        return df
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        return pd.DataFrame()
+
+
+def create_incident(engine, cluster_id, reason="Volume Anomaly"):
+    """
+    Simple function to trigger an incident. Logic for 'detecting' it is now elsewhere.
+    """
+    check_query = text(
+        "SELECT 1 FROM incidents WHERE cluster_id = :cid AND state = 'OPEN'"
+    )
+
+    update_query = text(
+        """
+        UPDATE incidents SET last_seen_at = NOW() 
+        WHERE cluster_id = :cid AND state = 'OPEN'
+    """
+    )
+
+    insert_query = text(
+        """
+        INSERT INTO incidents (cluster_id, state, last_seen_at) 
+        VALUES (:cid, 'OPEN', NOW())
+    """
+    )
 
     with engine.begin() as conn:
-        # Get total number of clusters from the pattern table
-        total_clusters_result = conn.execute(
-            text(
-                """
-            SELECT COUNT(DISTINCT cluster_id) as total_clusters
-            FROM log_patterns
-        """
-            )
-        ).fetchone()
+        exists = conn.execute(check_query, {"cid": cluster_id}).fetchone()
 
-        total_clusters = total_clusters_result[0]
-
-        # Get log count per cluster for recent logs
-        cluster_result = conn.execute(
-            text(
-                """
-            SELECT cluster_id, COUNT(*) as log_count
-            FROM logs 
-            WHERE timestamp >= :global_timestamp
-              AND level IN ('error', 'warning')
-              AND cluster_id IS NOT NULL
-            GROUP BY cluster_id
-        """
-            ),
-            {"global_timestamp": global_timestamp},
-        )  # ←PARAMETER BINDING
-
-        rows = cluster_result.fetchall()
-
-        print(f"Analyzing {len(rows)} clusters for anomalies...")
-
-        for row in rows:
-            cluster_id = row[0]
-            cluster_log_count = row[1]
-
-            # Calculate dynamic threshold
-            threshold = calculate_dynamic_threshold(
-                total_batch_size=batch_size,
-                cluster_incident_count=cluster_log_count,
-                total_clusters=total_clusters,
-                sensitivity=1.0,
-            )
-
-            print(
-                f"Cluster {cluster_id}: log_count={cluster_log_count}, threshold={threshold * 1.4}"
-            )
-
-            # Only create incident if log_count exceeds dynamic threshold
-            if cluster_log_count >= 1.4 * threshold:
-                # Check if incident already exists
-                exists = conn.execute(
-                    text(
-                        """
-                        SELECT 1
-                        FROM incidents
-                        WHERE cluster_id = :cluster_id
-                          AND state = 'OPEN'
-                    """
-                    ),
-                    {"cluster_id": cluster_id},
-                ).fetchone()
-
-                if exists:
-                    conn.execute(
-                        text(
-                            """
-                            UPDATE incidents
-                            SET last_seen_at = now()
-                            WHERE cluster_id = :cluster_id
-                              AND state = 'OPEN'
-                        """
-                        ),
-                        {"cluster_id": cluster_id},
-                    )
-                    print(f"Updated incident for cluster {cluster_id}")
-                else:
-                    conn.execute(
-                        text(
-                            """
-                            INSERT INTO incidents (
-                                cluster_id, state, last_seen_at
-                            )
-                            VALUES (
-                                :cluster_id, 'OPEN', now()
-                            )
-                        """
-                        ),
-                        {"cluster_id": cluster_id},
-                    )
-                    print(
-                        f"INCIDENT CREATED for cluster {cluster_id} (log_count: {cluster_log_count}, threshold: {threshold})"
-                    )
+        if exists:
+            conn.execute(update_query, {"cid": cluster_id})
+            print(f"⚠️ Incident UPDATED for Cluster {cluster_id}")
+        else:
+            conn.execute(insert_query, {"cid": cluster_id})
+            print(f"🚨 New Incident CREATED for Cluster {cluster_id} [{reason}]")
