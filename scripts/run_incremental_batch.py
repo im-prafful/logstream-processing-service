@@ -22,13 +22,12 @@ from src.model import load_model
 
 PRODUCTION_DIR = "models/production"
 
-
 def main():
     # READ ENV VARIABLES SENT BY LAMBDA
     batch_id = os.environ.get("BATCH_ID")
     start_log_id = os.environ.get("START_LOG_ID")
     end_log_id = os.environ.get("END_LOG_ID")
-    db_host = os.environ.get("DB_HOST")
+    db_host = os.environ.get("DB_HOST") 
 
     print(f"--- STARTING BATCH {batch_id} (Logs {start_log_id} - {end_log_id}) ---")
 
@@ -53,7 +52,7 @@ def main():
     # 2. PROCESS SPECIFIC BATCH (The Logic Change)
     # We remove the "LIMIT 2000" and instead use the precise range from Lambda
     print(f"Fetching logs between ID {start_log_id} and {end_log_id}...")
-
+    
     query = f"""
         SELECT * FROM logs 
         WHERE log_id BETWEEN {start_log_id} AND {end_log_id}
@@ -104,23 +103,16 @@ def main():
         )
 
     save_pattern(engine=engine)
-    detect_and_create_incidents(
-        engine=engine, batch_size=batch_size, global_timestamp=global_timestamp
-    )
+    detect_and_create_incidents(engine=engine, batch_size=batch_size, global_timestamp=global_timestamp)
 
     # 3. CRITICAL: Mark Batch as COMPLETED in DB
     # The Lambda launched us and forgot about us. WE must close the loop.
     with engine.connect() as conn:
         print(f"Marking Batch {batch_id} as COMPLETED in Database...")
-        conn.execute(
-            text(
-                f"UPDATE batch_order SET status='COMPLETED', processed_at=NOW() WHERE batchid={batch_id}"
-            )
-        )
+        conn.execute(text(f"UPDATE batch_order SET status='COMPLETED', processed_at=NOW() WHERE batchid={batch_id}"))
         conn.commit()
 
     print(f" Batch {batch_id} execution finished successfully.")
-
 
 if __name__ == "__main__":
     main()
