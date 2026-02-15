@@ -1,3 +1,4 @@
+import pandas as pd
 import sys
 import os
 import shutil
@@ -17,6 +18,7 @@ from src.pipeline import (
     create_streaming_pipeline,
 )
 from src.model import create_new_model, save_model
+from src.volume_analyzer import VolumeAnomalyDetector
 
 # CONSTANTS FOR BLUE/GREEN DEPLOYMENT
 PRODUCTION_DIR = "models/production"
@@ -87,7 +89,37 @@ def main():
     vector_engine.save(os.path.join(STAGING_DIR, "vector_centroids.pkl"))
     save_pattern(engine)
 
-    # 4. THE ATOMIC SWAP (Blue/Green Switch)
+    # 4. TRAIN VOLUME ANOMALY MODEL
+    print("Training Volume Analysis Model...")
+
+    # 4A. SIMULATE BATCHES
+    # We split the training data into small virtual batches, creating a "Time Series" history from our static data.
+    df_logs["virtual_batch_id"] = df_logs.index // 100
+
+    # 4B. COUNT LOGS PER CLUSTER PER VIRTUAL BATCH
+    # We query the DB to get the cluster_ids we just assigned during the loop above
+    volume_query = """
+        SELECT cluster_id, count(*) as log_count, (log_id / 100) as batch_id 
+        FROM log_embeddings 
+        GROUP BY cluster_id, batch_id
+        ORDER BY batch_id ASC
+    """
+    df_volume_history = pd.read_sql(volume_query, engine)
+
+    # Rename 'batch_id' to 'batch_timestamp' to match the analyzer's expectation
+    df_volume_history = df_volume_history.rename(
+        columns={"batch_id": "batch_timestamp"}
+    )
+
+    # 4C. TRAIN THE ISOLATION FOREST
+    # We assume a window size of 5
+    vol_model = VolumeAnomalyDetector(window_size=5)
+    vol_model.train(df_volume_history)
+
+    # 4D. SAVE TO STAGING
+    vol_model.save(STAGING_DIR)
+
+    # 5. THE ATOMIC SWAP (Blue/Green Switch)
     print("Performing ZERO-DOWNTIME SWAP...")
 
     # Strategy: Rename Production -> Backup, Rename Staging -> Production
