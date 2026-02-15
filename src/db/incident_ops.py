@@ -30,10 +30,10 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
 
         if exists:
             conn.execute(update_query, {"cid": cluster_id})
-            print(f"⚠️ Incident UPDATED for Cluster {cluster_id}")
+            print(f"️Incident UPDATED for Cluster {cluster_id}")
         else:
             conn.execute(insert_query, {"cid": cluster_id})
-            print(f"🚨 New Incident CREATED for Cluster {cluster_id} [{reason}]")
+            print(f"New Incident CREATED for Cluster {cluster_id} [{reason}]")
 
 
 def detect_and_create_incidents(engine, batch_size, global_timestamp):
@@ -44,12 +44,14 @@ def detect_and_create_incidents(engine, batch_size, global_timestamp):
     from src.ml.volume_analyzer import VolumeAnomalyDetector
 
     # 1. Count how many logs landed in each cluster during this batch
-    count_query = text("""
+    count_query = text(
+        """
         SELECT cluster_id, COUNT(*) as cnt
         FROM logs
         WHERE cluster_id IS NOT NULL
         GROUP BY cluster_id
-    """)
+    """
+    )
 
     try:
         with engine.begin() as conn:
@@ -72,8 +74,8 @@ def detect_and_create_incidents(engine, batch_size, global_timestamp):
 
     # 5. Create incidents
     if anomalous_clusters:
-        print(f"🚨 Detected {len(anomalous_clusters)} anomalous clusters!")
+        print(f"Detected {len(anomalous_clusters)} anomalous clusters!")
         for cid in anomalous_clusters:
             create_incident(engine, cid, reason="Volume Anomaly")
     else:
-        print("✅ No volume anomalies detected.")
+        print("No volume anomalies detected.")
