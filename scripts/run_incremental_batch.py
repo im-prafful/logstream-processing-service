@@ -8,7 +8,7 @@ sys.stdout.reconfigure(line_buffering=True)
 
 sys.path.append(sys.path[0] + "/..")
 
-from src.db_connector import (
+from src.db import (
     detect_and_create_incidents,
     get_db_engine,
     fetch_logs_batch,
@@ -16,9 +16,7 @@ from src.db_connector import (
     save_pattern,
     fetch_min_timestamp,
 )
-from src.vector_engine import SemanticVectorEngine
-from src.pipeline import get_text_embedding, build_feature_dict
-from src.model import load_model
+from src.ml import SemanticVectorEngine, get_text_embedding, build_feature_dict, load_model
 
 PRODUCTION_DIR = "models/production"
 

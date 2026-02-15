@@ -6,8 +6,8 @@ import seaborn as sns
 from sklearn.manifold import TSNE
 
 sys.path.append(sys.path[0] + "/..")
-from src.db_connector import get_db_engine, fetch_logs_batch
-from src.pipeline import get_text_embedding
+from src.db import get_db_engine, fetch_logs_batch
+from src.ml import get_text_embedding
 
 
 def plot_purity_heatmap(df):
