@@ -77,29 +77,29 @@ def main():
 
     # 1. Functional Validation (Purity)
     h_score, c_score = calculate_purity(df)
-    print(f"\n📊 FUNCTIONAL METRICS (Vs. Ground Truth):")
+    print(f"\n FUNCTIONAL METRICS (Vs. Ground Truth):")
     print(f"   Homogeneity:  {h_score:.2f} / 1.0  (Are clusters pure?)")
     print(f"   Completeness: {c_score:.2f} / 1.0  (Are error types fragmented?)")
 
     if h_score > 0.8:
-        print("   ✅ PASSED: Clusters are highly pure.")
+        print("   PASSED: Clusters are highly pure.")
     elif h_score > 0.5:
-        print("   ⚠️ WARNING: Some clusters are mixed.")
+        print("   WARNING: Some clusters are mixed.")
     else:
-        print("   ❌ FAILED: Clusters are messy.")
+        print("   FAILED: Clusters are messy.")
 
     # 2. Mathematical Validation (Silhouette)
     # Only run this if you have time/compute, it's O(N^2) complexity
     s_score = calculate_math_quality(df)
-    print(f"\n📐 MATHEMATICAL METRICS (Geometry):")
+    print(f"\n MATHEMATICAL METRICS (Geometry):")
     print(f"   Silhouette Score: {s_score:.2f} (Range: -1 to 1)")
 
     if s_score > 0.4:
-        print("   ✅ PASSED: Clusters are distinct and dense.")
+        print("   PASSED: Clusters are distinct and dense.")
     elif s_score > 0.1:
-        print("   ⚠️ WARNING: Clusters are somewhat overlapping.")
+        print("   WARNING: Clusters are somewhat overlapping.")
     else:
-        print("   ❌ FAILED: Clusters are indistinguishable blobs.")
+        print("   FAILED: Clusters are indistinguishable blobs.")
 
     # 3. "Eyeball" Test (Show examples)
     print("\n👀 CLUSTER SAMPLES:")

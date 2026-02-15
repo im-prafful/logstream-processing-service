@@ -37,7 +37,7 @@ def main():
     engine = get_db_engine()
 
     # Fetch large dataset for training
-    query = "SELECT * FROM logs WHERE level IN ('warning','error') ORDER BY log_id ASC LIMIT 5000;"
+    query = "SELECT * FROM logs WHERE level IN ('warning','error') ORDER BY log_id ASC LIMIT 10000;"
     df_logs = fetch_logs_batch(engine, query)
 
     if df_logs.empty:
