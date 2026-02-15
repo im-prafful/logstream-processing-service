@@ -1,21 +1,21 @@
 from sqlalchemy import text
 import sys
 import os
-import pandas as pd
+import time
+
+# 1. Force logs to flush immediately (fixes the "missing logs" issue)
+sys.stdout.reconfigure(line_buffering=True)
 
 sys.path.append(sys.path[0] + "/..")
 
 from src.db_connector import (
+    detect_and_create_incidents,
     get_db_engine,
     fetch_logs_batch,
     save_embedding,
     save_pattern,
     fetch_min_timestamp,
-    save_cluster_stats,
-    fetch_cluster_history,
-    create_incident,
 )
-from src.volume_analyzer import VolumeAnomalyDetector
 from src.vector_engine import SemanticVectorEngine
 from src.pipeline import get_text_embedding, build_feature_dict
 from src.model import load_model
@@ -24,11 +24,21 @@ PRODUCTION_DIR = "models/production"
 
 
 def main():
-    print("--- STARTING INCREMENTAL INFERENCE (BLUE Deployment) ---")
+    # READ ENV VARIABLES SENT BY LAMBDA
+    batch_id = os.environ.get("BATCH_ID")
+    start_log_id = os.environ.get("START_LOG_ID")
+    end_log_id = os.environ.get("END_LOG_ID")
+    db_host = os.environ.get("DB_HOST")
 
-    # 1. ALWAYS LOAD FROM PRODUCTION
+    print(f"--- STARTING BATCH {batch_id} (Logs {start_log_id} - {end_log_id}) ---")
+
+    # Safety Check: If run locally without Env Vars, warn the user
+    if not batch_id or not start_log_id:
+        print("❌ ERROR: Missing Batch ID or Log Range environment variables.")
+        return
+
+    # 1. LOAD MODEL
     model, pipeline = load_model(directory=PRODUCTION_DIR)
-
     if model is None:
         print("Waiting for initial training to complete...")
         return
@@ -40,12 +50,16 @@ def main():
 
     engine = get_db_engine()
 
-    # 2. PROCESS NEW LOGS
-    query = """
+    # 2. PROCESS SPECIFIC BATCH (The Logic Change)
+    # We remove the "LIMIT 2000" and instead use the precise range from Lambda
+    print(f"Fetching logs between ID {start_log_id} and {end_log_id}...")
+
+    query = f"""
         SELECT * FROM logs 
-        WHERE log_id NOT IN (SELECT log_id FROM log_embeddings)
-        AND level IN ('error','warning') 
-        LIMIT 2000;
+        WHERE log_id BETWEEN {start_log_id} AND {end_log_id}
+        AND level IN ('error','warning')
+        AND cluster_id IS NULL 
+        ORDER BY log_id ASC
     """
 
     timestamp_query = text(
@@ -58,20 +72,17 @@ def main():
     )
 
     df_new = fetch_logs_batch(engine, query)
-
-    # We don't strictly need global_timestamp for volume analysis anymore,
     global_timestamp = fetch_min_timestamp(
         engine=engine, timestamp_query=timestamp_query
     )
 
     if df_new.empty:
-        print("No new logs.")
+        print(f"Batch {batch_id} is empty (No error/warning logs found in range).")
+        # Still need to mark as complete in DB?
         return
 
     batch_size = len(df_new)
-    print(f"Classifying {batch_size} logs using LIVE model...")
-
-    batch_counts = {}
+    print(f"Classifying {batch_size} logs for Batch {batch_id}...")
 
     for _, log in df_new.iterrows():
         full_text = f"{log['message']}. Parsed: {log['parsed_data']}"
@@ -80,13 +91,7 @@ def main():
         feats = build_feature_dict(log["level"], log["source"], embedding, sem_id)
 
         proc_feats = pipeline.transform_one(feats)
-
         cluster_id = model.predict_one(proc_feats)
-
-        # Update the count for this cluster
-        if cluster_id not in batch_counts:
-            batch_counts[cluster_id] = 0
-        batch_counts[cluster_id] += 1
 
         save_embedding(
             engine,
@@ -99,33 +104,22 @@ def main():
         )
 
     save_pattern(engine=engine)
+    detect_and_create_incidents(
+        engine=engine, batch_size=batch_size, global_timestamp=global_timestamp
+    )
 
-    # VOLUME ANALYSIS LOGIC
+    # 3. CRITICAL: Mark Batch as COMPLETED in DB
+    # The Lambda launched us and forgot about us. WE must close the loop.
+    with engine.connect() as conn:
+        print(f"Marking Batch {batch_id} as COMPLETED in Database...")
+        conn.execute(
+            text(
+                f"UPDATE batch_order SET status='COMPLETED', processed_at=NOW() WHERE batchid={batch_id}"
+            )
+        )
+        conn.commit()
 
-    # 1.
-
-    # 2. SAVE TO HISTORY
-    # Now 'batch_counts' actually exists and contains data
-    save_cluster_stats(engine, batch_counts)
-
-    # 3. LOAD THE VOLUME MODEL
-    vol_model = VolumeAnomalyDetector(window_size=5)
-    vol_model.load(PRODUCTION_DIR)
-
-    # 4. FETCH CONTEXT
-    history_df = fetch_cluster_history(engine, window_size=5)
-
-    # 5. RUN INFERENCE
-    anomalies = vol_model.detect_anomalies(history_df)
-
-    if anomalies:
-        print(f"🚨 DETECTED VOLUME ANOMALIES in Clusters: {anomalies}")
-        for cid in anomalies:
-            create_incident(engine, cid, reason="Abnormal Volume Spike")
-    else:
-        print("✅ No volume anomalies detected in this batch.")
-
-    print("Inference batch complete.")
+    print(f" Batch {batch_id} execution finished successfully.")
 
 
 if __name__ == "__main__":
