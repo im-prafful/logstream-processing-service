@@ -3,6 +3,8 @@ import sys
 import os
 import shutil
 
+sys.stdout.reconfigure(line_buffering=True)
+
 sys.path.append(sys.path[0] + "/..")
 
 from src.db import (
@@ -37,7 +39,7 @@ def main():
     engine = get_db_engine()
 
     # Fetch large dataset for training
-    query = "SELECT * FROM logs WHERE level IN ('warning','error') ORDER BY log_id ASC LIMIT 10000;"
+    query = "SELECT * FROM logs WHERE level IN ('warning','error') ORDER BY log_id ASC LIMIT 5000;"
     df_logs = fetch_logs_batch(engine, query)
 
     if df_logs.empty:
@@ -87,7 +89,9 @@ def main():
     # 3. SAVE TO STAGING (The "Green" Copy)
     print(f"Training complete. Saving to STAGING ({STAGING_DIR})...")
     save_model(model, pipeline, directory=STAGING_DIR)
+
     vector_engine.save(os.path.join(STAGING_DIR, "vector_centroids.pkl"))
+
     save_pattern(engine)
 
     # 4. TRAIN VOLUME ANOMALY MODEL

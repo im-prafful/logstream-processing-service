@@ -13,8 +13,7 @@ def save_pattern(engine):
         null_check = text(
             """
                 SELECT MAX(last_seen) AS last_timestamp
-                FROM patter_table;
-            """
+                FROM log_patterns;            """
         )
 
         last_time = None
