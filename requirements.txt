@@ -5,9 +5,10 @@ psycopg2-binary
 
 # --- Core ML: Streaming & Embeddings ---
 river
-sentence-transformers
-torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu  # Forces CPU version
-numpy
+sentence-transformers==3.3.1
+transformers==4.46.3
+# NOTE: torch is installed separately in Dockerfile (CPU-only version)
+numpy<2   # Must stay on 1.x for torch/scipy ABI compatibility
 
 # --- Vector Search & Math (CRITICAL FOR NEW ENGINE) ---
 scipy>=1.10.0   # Required for Minkowski distance

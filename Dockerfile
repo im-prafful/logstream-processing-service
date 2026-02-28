@@ -20,7 +20,10 @@ ENV FORCE_CUDA=0
 # 1. Copy requirements
 COPY requirements.txt .
 
-# Install dependencies. We keep the timeout for network stability.
+# Install PyTorch CPU-only FIRST (from the dedicated CPU index, ~200MB instead of ~800MB)
+RUN pip install --no-cache-dir --timeout 600 torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining dependencies
 RUN pip install --no-cache-dir --timeout 600 -r requirements.txt
 
 # 2. Now copy the actual code
