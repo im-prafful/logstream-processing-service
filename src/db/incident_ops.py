@@ -4,34 +4,28 @@ from src.db.cluster_ops import save_cluster_stats, fetch_cluster_history
 
 
 def create_incident(engine, cluster_id, reason="Volume Anomaly"):
-    """
-    Simple function to trigger an incident. Logic for 'detecting' it is now elsewhere.
-    """
-    check_query = text(
-        "SELECT 1 FROM incidents WHERE cluster_id = :cid AND state = 'OPEN'"
-    )
 
-    update_query = text(
-        """
-        UPDATE incidents SET last_seen_at = NOW() 
-        WHERE cluster_id = :cid AND state = 'OPEN'
-    """
-    )
+  #  check_query = text(
+  # "SELECT 1 FROM incidents WHERE cluster_id = :cid AND state = 'OPEN'"
+  # )
+    
+#
+# update_query = text(
+#     """
+#     UPDATE incidents SET last_seen_at = NOW() 
+#     WHERE cluster_id = :cid AND state = 'OPEN'
+#     """
+# )
 
-    insert_query = text(
+    insert_query=text(
         """
-        INSERT INTO incidents (cluster_id, state, last_seen_at) 
-        VALUES (:cid, 'OPEN', NOW())
-    """
+            INSERT INTO incidents (cluster_id,status,assigned_role,assigned_to,created_at,updated_at,resolved_at)
+            VALUES(:cid,'OPEN','SRE',null,NOW(),null,null)
+        """
     )
 
     with engine.begin() as conn:
-        exists = conn.execute(check_query, {"cid": cluster_id}).fetchone()
-
-        if exists:
-            conn.execute(update_query, {"cid": cluster_id})
-            print(f"️Incident UPDATED for Cluster {cluster_id}")
-        else:
+        
             conn.execute(insert_query, {"cid": cluster_id})
             print(f"New Incident CREATED for Cluster {cluster_id} [{reason}]")
 

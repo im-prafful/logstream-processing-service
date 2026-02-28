@@ -54,7 +54,7 @@ def main():
     engine = get_db_engine()
 
     # 2. PROCESS SPECIFIC BATCH (The Logic Change)
-    # We remove the "LIMIT 2000" and instead use the precise range from Lambda
+
     print(f"Fetching logs between ID {start_log_id} and {end_log_id}...")
 
     query = f"""
@@ -81,7 +81,6 @@ def main():
 
     if df_new.empty:
         print(f"Batch {batch_id} is empty (No error/warning logs found in range).")
-        # Still need to mark as complete in DB?
         return
 
     batch_size = len(df_new)
@@ -107,6 +106,7 @@ def main():
         )
 
     save_pattern(engine=engine)
+
     detect_and_create_incidents(
         engine=engine, batch_size=batch_size, global_timestamp=global_timestamp
     )
