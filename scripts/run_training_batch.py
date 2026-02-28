@@ -2,6 +2,9 @@ import pandas as pd
 import sys
 import os
 import shutil
+import csv
+import json
+import torch
 
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -15,17 +18,55 @@ from src.db import (
 )
 from src.ml import (
     SemanticVectorEngine,
-    get_text_embedding,
     build_feature_dict,
     create_streaming_pipeline,
     create_new_model,
     save_model,
     VolumeAnomalyDetector,
 )
+from sentence_transformers import SentenceTransformer
+from sqlalchemy import text
 
 # CONSTANTS FOR BLUE/GREEN DEPLOYMENT
 PRODUCTION_DIR = "models/production"
 STAGING_DIR = "models/staging"
+
+# Temporary CSV file written during the training loop.
+# Acts as a crash-resilient staging buffer before the final DB insert.
+STAGING_CSV = "staging/embeddings_staging.csv"
+
+# ── GPU / CPU Auto-Detection ──────────────────────────────────────────────────
+# Uses your NVIDIA RTX 3050 (CUDA) when running locally.
+# Falls back to CPU gracefully if CUDA is not available.
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"[DEVICE] Using: {device.upper()}  |  CUDA available: {torch.cuda.is_available()}")
+if device == "cuda":
+    print(f"[DEVICE] GPU: {torch.cuda.get_device_name(0)}")
+
+# Load the embedding model once, bound to the detected device
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+
+
+def get_text_embedding_local(text: str):
+    """Single-item encode — kept for compatibility but not used in training loop."""
+    return embedding_model.encode(text, convert_to_numpy=True)
+
+
+def batch_encode_texts(texts: list, batch_size: int = 64):
+    """
+    Encode all texts in one GPU-batched call.
+    Returns a list of numpy arrays (one embedding per text).
+    batch_size=64 fits comfortably in RTX 3050 4GB VRAM.
+    """
+    print(f"[EMBED] Encoding {len(texts)} texts on {device.upper()} (batch_size={batch_size})...")
+    embeddings = embedding_model.encode(
+        texts,
+        batch_size=batch_size,
+        show_progress_bar=True,
+        convert_to_numpy=True,
+    )
+    print(f"[EMBED] Done. Embedding shape: {embeddings.shape}")
+    return embeddings
 
 
 def main():
@@ -45,38 +86,101 @@ def main():
     if df_logs.empty:
         return
 
-    # 2. TRAIN NEW MODEL (This takes time, but it's isolated in memory/staging)
+    # ── OPTIMISATION 1: Pre-compute ALL embeddings in a single GPU-batched call ──
+    # Instead of calling encode() 5,000 times inside the loop, we build the full
+    # text list up front and let the GPU crunch them all at once.
+    print("Pre-computing embeddings for all logs (GPU-batched)...")
+    all_texts = [
+        f"{row['message']}. Parsed: {row['parsed_data']}"
+        for _, row in df_logs.iterrows()
+    ]
+    all_embeddings = batch_encode_texts(all_texts, batch_size=64)
+
+    # 2. TRAIN NEW MODEL (isolated in memory/staging)
     print("Training Base Model...")
     vector_engine = SemanticVectorEngine(minkowski_p=1.5, threshold=0.35)
     model = create_new_model()
     pipeline = create_streaming_pipeline()
 
-    for _, log in df_logs.iterrows():
-        log_id = log["log_id"]
-        app_id = log["app_id"]
-        level = log["level"]
-        source = log["source"]
+    # ── OPTIMISATION 2: Write each row to a CSV staging file during the loop ──────
+    # Instead of one DB transaction per log (5,000 round-trips), we stream rows
+    # to a local CSV file as the loop runs. If the script crashes mid-way, the
+    # file already has everything processed so far — nothing is lost.
+    os.makedirs(os.path.dirname(STAGING_CSV), exist_ok=True)
+    CSV_COLUMNS = ["log_id", "app_id", "embedding", "cluster_id", "level", "source"]
 
-        full_text = f"{log['message']}. Parsed: {log['parsed_data']}"
-        embedding = get_text_embedding(full_text)
-        sem_id = vector_engine.get_semantic_group(embedding, log["log_id"])
-        feats = build_feature_dict(log["level"], log["source"], embedding, sem_id)
+    print(f"[CSV] Streaming rows to staging file: {STAGING_CSV}")
+    with open(STAGING_CSV, "w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
 
-        pipeline.learn_one(feats)
-        proc_feats = pipeline.transform_one(feats)
-        model.learn_one(proc_feats)
+        for idx, (_, log) in enumerate(df_logs.iterrows()):
+            log_id = log["log_id"]
+            app_id = log["app_id"]
+            level  = log["level"]
+            source = log["source"]
 
-        cluster_id = model.predict_one(proc_feats)
+            # Use the pre-computed embedding for this row
+            embedding = all_embeddings[idx]
 
-        save_embedding(
-            engine=engine,
-            log_id=log_id,
-            app_id=app_id,
-            embedding_vector=embedding,
-            cluster_id=cluster_id,
-            level=level,
-            source=source,
-        )
+            sem_id = vector_engine.get_semantic_group(embedding, log_id)
+            feats  = build_feature_dict(log["level"], log["source"], embedding, sem_id)
+
+            pipeline.learn_one(feats)
+            proc_feats = pipeline.transform_one(feats)
+            model.learn_one(proc_feats)
+            cluster_id = model.predict_one(proc_feats)
+
+            # Write this row to the CSV immediately (crash-safe)
+            writer.writerow({
+                "log_id":    log_id,
+                "app_id":    app_id,
+                "embedding": json.dumps(embedding.tolist()),  # store vector as JSON string
+                "cluster_id": cluster_id,
+                "level":     level,
+                "source":    source,
+            })
+
+    print(f"[CSV] Finished writing staging file.")
+
+    # ── SINGLE BULK INSERT: read the CSV, one transaction, one round-trip ─────────
+    print(f"[DB] Reading staging file and bulk inserting into log_embeddings...")
+    df_staging = pd.read_csv(STAGING_CSV)
+
+    # Deserialise the embedding JSON strings back into Python lists
+    embedding_rows = [
+        {
+            "log_id":    row["log_id"],
+            "app_id":    row["app_id"],
+            "embedding": json.loads(row["embedding"]),
+            "cluster_id": row["cluster_id"],
+            "level":     row["level"],
+            "source":    row["source"],
+        }
+        for _, row in df_staging.iterrows()
+    ]
+    cluster_updates = [
+        {"log_id": row["log_id"], "cluster_id": row["cluster_id"]}
+        for _, row in df_staging.iterrows()
+    ]
+
+    insert_embeddings_sql = text("""
+        INSERT INTO log_embeddings (log_id, app_id, embedding, cluster_id, level, source)
+        VALUES (:log_id, :app_id, :embedding, :cluster_id, :level, :source)
+        ON CONFLICT (log_id) DO NOTHING;
+    """)
+    update_logs_sql = text("""
+        UPDATE logs SET cluster_id = :cluster_id WHERE log_id = :log_id;
+    """)
+
+    with engine.begin() as conn:
+        conn.execute(insert_embeddings_sql, embedding_rows)
+        conn.execute(update_logs_sql, cluster_updates)
+    print(f"[DB] Bulk insert complete ({len(embedding_rows)} rows).")
+
+    # Clean up the staging file now that it's safely in the DB
+    os.remove(STAGING_CSV)
+    print(f"[CSV] Staging file cleaned up.")
 
     # Log the number of micro-clusters detected
     try:
