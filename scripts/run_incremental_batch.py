@@ -22,7 +22,7 @@ from src.ml import (
     build_feature_dict,
     load_model,
 )
-#vsfgsfdgfs
+
 PRODUCTION_DIR = "scripts/models/production"
 
 
@@ -117,7 +117,7 @@ def main():
         print(f"Marking Batch {batch_id} as COMPLETED in Database...")
         conn.execute(
             text(
-                f"UPDATE batch_order SET status='COMPLETED', processed_at=NOW() WHERE batchid={batch_id}"
+                f"UPDATE batch_order SET status='COMPLETED', last_processed_timestamp=NOW() WHERE batchid={batch_id}"
             )
         )
         conn.commit()

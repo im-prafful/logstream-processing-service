@@ -51,7 +51,7 @@ def detect_and_create_incidents(engine, batch_size, global_timestamp):
 
     # 4. Load volume model and detect anomalies
     vol_detector = VolumeAnomalyDetector(window_size=5)
-    vol_detector.load("models/production")
+    vol_detector.load("scripts/models/production")
     anomalous_clusters = vol_detector.detect_anomalies(history_df)
 
     # 5. Create incidents
