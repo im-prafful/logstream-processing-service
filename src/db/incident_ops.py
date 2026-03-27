@@ -8,7 +8,7 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
     insert_query=text(
         """
             INSERT INTO incidents (cluster_id,status,assigned_role,assigned_to,created_at,updated_at,resolved_at)
-            VALUES(:cid,'open','SRE',null,NOW(),null,null)
+            VALUES(:cid,'NEW','SRE',null,NOW(),null,null)
         """
     )
 
