@@ -14,7 +14,6 @@ from src.db import (
     fetch_logs_batch,
     save_embedding,
     save_pattern,
-    fetch_min_timestamp,
 )
 from src.ml import (
     SemanticVectorEngine,
@@ -65,19 +64,7 @@ def main():
         ORDER BY log_id ASC
     """
 
-    timestamp_query = text(
-        """
-        SELECT MIN(timestamp) 
-        FROM logs 
-        WHERE level IN ('error','warning') 
-        AND cluster_id IS NULL
-    """
-    )
-
     df_new = fetch_logs_batch(engine, query)
-    global_timestamp = fetch_min_timestamp(
-        engine=engine, timestamp_query=timestamp_query
-    )
 
     if df_new.empty:
         print(f"Batch {batch_id} is empty (No error/warning logs found in range).")
@@ -108,7 +95,7 @@ def main():
     save_pattern(engine=engine)
 
     detect_and_create_incidents(
-        engine=engine, batch_size=batch_size, global_timestamp=global_timestamp
+        engine=engine, start_log_id=int(start_log_id), end_log_id=int(end_log_id)
     )
 
     # 3. CRITICAL: Mark Batch as COMPLETED in DB

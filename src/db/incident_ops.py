@@ -4,20 +4,24 @@ from src.db.cluster_ops import save_cluster_stats, fetch_cluster_history
 
 
 def create_incident(engine, cluster_id, reason="Volume Anomaly"):
+    check_query = text(
+        """
+            SELECT 1
+            FROM incidents
+            WHERE cluster_id = :cid AND status = 'OPEN'
+            LIMIT 1
+        """
+    )
 
-  #  check_query = text(
-  # "SELECT 1 FROM incidents WHERE cluster_id = :cid AND state = 'OPEN'"
-  # )
-    
-#
-# update_query = text(
-#     """
-#     UPDATE incidents SET last_seen_at = NOW() 
-#     WHERE cluster_id = :cid AND state = 'OPEN'
-#     """
-# )
+    update_query = text(
+        """
+            UPDATE incidents
+            SET updated_at = NOW()
+            WHERE cluster_id = :cid AND status = 'OPEN'
+        """
+    )
 
-    insert_query=text(
+    insert_query = text(
         """
             INSERT INTO incidents (cluster_id,status,assigned_role,assigned_to,created_at,updated_at,resolved_at)
             VALUES(:cid,'OPEN','SRE',null,NOW(),null,null)
@@ -25,12 +29,17 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
     )
 
     with engine.begin() as conn:
-        
+        existing_open = conn.execute(check_query, {"cid": cluster_id}).fetchone()
+        if existing_open:
+            conn.execute(update_query, {"cid": cluster_id})
+            print(f"Incident already OPEN for Cluster {cluster_id}; refreshed timestamp [{reason}]")
+            return
+
             conn.execute(insert_query, {"cid": cluster_id})
             print(f"New Incident CREATED for Cluster {cluster_id} [{reason}]")
 
 
-def detect_and_create_incidents(engine, batch_size, global_timestamp):
+def detect_and_create_incidents(engine, start_log_id, end_log_id):
     """
     End-of-batch orchestrator: saves cluster volume stats,
     runs anomaly detection, and creates incidents for flagged clusters.
@@ -43,13 +52,18 @@ def detect_and_create_incidents(engine, batch_size, global_timestamp):
         SELECT cluster_id, COUNT(*) as cnt
         FROM logs
         WHERE cluster_id IS NOT NULL
+          AND level IN ('error','warning')
+          AND log_id BETWEEN :start_log_id AND :end_log_id
         GROUP BY cluster_id
     """
     )
 
     try:
         with engine.begin() as conn:
-            rows = conn.execute(count_query).fetchall()
+            rows = conn.execute(
+                count_query,
+                {"start_log_id": start_log_id, "end_log_id": end_log_id},
+            ).fetchall()
         batch_stats = {row[0]: row[1] for row in rows}
     except Exception as e:
         print(f"Error counting cluster stats: {e}")
