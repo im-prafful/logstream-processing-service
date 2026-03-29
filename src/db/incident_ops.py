@@ -4,27 +4,23 @@ from src.db.cluster_ops import save_cluster_stats, fetch_cluster_history
 
 
 def create_incident(engine, cluster_id, reason="Volume Anomaly"):
-    check_query = text(
-        """
-            SELECT 1
-            FROM incidents
-            WHERE cluster_id = :cid AND status = 'OPEN'
-            LIMIT 1
-        """
-    )
 
-    update_query = text(
-        """
-            UPDATE incidents
-            SET updated_at = NOW()
-            WHERE cluster_id = :cid AND status = 'OPEN'
-        """
-    )
+  #  check_query = text(
+  # "SELECT 1 FROM incidents WHERE cluster_id = :cid AND state = 'OPEN'"
+  # )
+    
+#
+# update_query = text(
+#     """
+#     UPDATE incidents SET last_seen_at = NOW() 
+#     WHERE cluster_id = :cid AND state = 'OPEN'
+#     """
+# )
 
     insert_query = text(
         """
             INSERT INTO incidents (cluster_id,status,assigned_role,assigned_to,created_at,updated_at,resolved_at)
-            VALUES(:cid,'OPEN','SRE',null,NOW(),null,null)
+            VALUES(:cid,'NEW','SRE',null,NOW(),null,null)
         """
     )
 
@@ -77,7 +73,7 @@ def detect_and_create_incidents(engine, start_log_id, end_log_id):
 
     # 4. Load volume model and detect anomalies
     vol_detector = VolumeAnomalyDetector(window_size=5)
-    vol_detector.load("models/production")
+    vol_detector.load("scripts/models/production")
     anomalous_clusters = vol_detector.detect_anomalies(history_df)
 
     # 5. Create incidents

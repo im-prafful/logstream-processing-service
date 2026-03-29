@@ -40,7 +40,7 @@ def save_pattern(engine):
                     HAVING cluster_id IS NOT NULL
                 ) t
                 ON l.cluster_id = t.cluster_id AND l.log_id = t.first_log
-                WHERE l.last_seen > :last_time;
+                WHERE l.timestamp > :last_time;
                 """
             )
             query_params = {"last_time": last_time}
