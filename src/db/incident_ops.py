@@ -5,18 +5,6 @@ from src.db.cluster_ops import save_cluster_stats, fetch_cluster_history
 
 def create_incident(engine, cluster_id, reason="Volume Anomaly"):
 
-  #  check_query = text(
-  # "SELECT 1 FROM incidents WHERE cluster_id = :cid AND state = 'OPEN'"
-  # )
-    
-#
-# update_query = text(
-#     """
-#     UPDATE incidents SET last_seen_at = NOW() 
-#     WHERE cluster_id = :cid AND state = 'OPEN'
-#     """
-# )
-
     insert_query = text(
         """
             INSERT INTO incidents (cluster_id,status,assigned_role,assigned_to,created_at,updated_at,resolved_at)
