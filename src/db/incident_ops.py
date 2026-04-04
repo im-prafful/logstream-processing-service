@@ -32,7 +32,9 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
         existing_open = conn.execute(check_query, {"cid": cluster_id}).fetchone()
         if existing_open:
             conn.execute(update_query, {"cid": cluster_id})
-            print(f"Incident already active for Cluster {cluster_id}; refreshed timestamp [{reason}]")
+            print(
+                f"Incident already active for Cluster {cluster_id}; refreshed timestamp [{reason}]"
+            )
             return
 
         conn.execute(insert_query, {"cid": cluster_id})
@@ -77,7 +79,7 @@ def detect_and_create_incidents(engine, start_log_id, end_log_id):
 
     # 4. Load volume model and detect anomalies
     vol_detector = VolumeAnomalyDetector(window_size=5)
-    vol_detector.load("models/production")
+    vol_detector.load("scripts/models/production")
     anomalous_clusters = vol_detector.detect_anomalies(history_df)
 
     # 5. Create incidents

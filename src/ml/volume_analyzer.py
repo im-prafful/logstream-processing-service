@@ -45,7 +45,7 @@ class VolumeAnomalyDetector:
 
         for cid, group in grouped:
             # We need at least 2 data points to calculate velocity
-            if len(group) < 2:
+            if len(group) < self.window_size:
                 continue
 
             # Sort by time just in case
@@ -99,21 +99,15 @@ class VolumeAnomalyDetector:
             print("⚠️ Volume Model is not trained. Skipping inference.")
             return []
 
-        # 1. Check Data Sufficiency (The "Warm Up" Check)
-        # We need to ensure we have enough history to make a valid prediction
+        # 1. Check Data Sufficiency
         if history_df.empty:
             return []
 
-        # Check max depth of history (e.g., do we have 5 batches yet?)
-        max_history_depth = history_df.groupby("cluster_id").size().max()
-        if max_history_depth < self.window_size:
-            print(
-                f"⏳ System Warming Up... (Current Depth: {max_history_depth}/{self.window_size})"
-            )
-            return []
-
-        # 2. Extract Features
+        # 2. Extract Features (per-cluster filtering happens inside _extract_features)
         X, cluster_ids = self._extract_features(history_df)
+
+        total_clusters = history_df["cluster_id"].nunique()
+        print(f"Feature extraction: {len(cluster_ids)}/{total_clusters} clusters have sufficient history (window={self.window_size})")
 
         if len(X) == 0:
             return []
