@@ -90,10 +90,12 @@ class VolumeAnomalyDetector:
         self.is_trained = True
         print("✅ Volume Model Trained successfully.")
 
-    def detect_anomalies(self, history_df):
+    def detect_anomalies(self, history_df, max_anomalies=3):
         """
-        Predicts anomalies based on the latest history.
-        Returns: List of cluster_ids that are anomalous.
+        Predicts anomalies based on the latest history using score-based
+        relative ranking instead of the raw binary prediction.
+
+        Returns: List of cluster_ids that are anomalous (at most max_anomalies).
         """
         if not self.is_trained:
             print("⚠️ Volume Model is not trained. Skipping inference.")
@@ -112,14 +114,45 @@ class VolumeAnomalyDetector:
         if len(X) == 0:
             return []
 
-        # 3. Predict (-1 = Anomaly, 1 = Normal)
-        predictions = self.model.predict(X)
+        # 3. Get anomaly SCORES instead of binary predictions.
+        #    score_samples() returns negative scores; lower = more anomalous.
+        scores = self.model.score_samples(X)
+
+        # 4. Log all scores for debugging
+        print("--- Volume Anomaly Scores (lower = more anomalous) ---")
+        for i, cid in enumerate(cluster_ids):
+            print(f"  Cluster {cid}: score={scores[i]:.4f}")
+
+        # 5. Use relative ranking: flag clusters whose score is significantly
+        #    below the batch mean (z-score < -1.0).
+        #    This is distribution-agnostic — it compares clusters against
+        #    each other within this batch, not against the training threshold.
+        mean_score = np.mean(scores)
+        std_score = np.std(scores)
 
         anomalies = []
-        for i, pred in enumerate(predictions):
-            if pred == -1:
-                anomalies.append(cluster_ids[i])
+        if std_score > 1e-6:
+            # There is meaningful variance — use z-score to find outliers
+            z_threshold = -1.0
+            scored_clusters = []
+            for i, cid in enumerate(cluster_ids):
+                z = (scores[i] - mean_score) / std_score
+                if z < z_threshold:
+                    scored_clusters.append((cid, scores[i], z))
 
+            # Sort by score ascending (most anomalous first), cap at max_anomalies
+            scored_clusters.sort(key=lambda x: x[1])
+            scored_clusters = scored_clusters[:max_anomalies]
+
+            anomalies = [sc[0] for sc in scored_clusters]
+
+            for cid, score, z in scored_clusters:
+                print(f"  🚨 FLAGGED Cluster {cid}: score={score:.4f}, z={z:.2f}")
+        else:
+            # All scores are nearly identical — no real anomaly in this batch
+            print("  All clusters have similar scores. No anomalies detected.")
+
+        print(f"Anomaly summary: {len(anomalies)}/{len(cluster_ids)} clusters flagged (mean={mean_score:.4f}, std={std_score:.4f})")
         return anomalies
 
     def save(self, directory):
