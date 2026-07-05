@@ -32,7 +32,9 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
         existing_open = conn.execute(check_query, {"cid": cluster_id}).fetchone()
         if existing_open:
             conn.execute(update_query, {"cid": cluster_id})
-            print(f"Incident already active for Cluster {cluster_id}; refreshed timestamp [{reason}]")
+            print(
+                f"Incident already active for Cluster {cluster_id}; refreshed timestamp [{reason}]"
+            )
             return
 
         conn.execute(insert_query, {"cid": cluster_id})
@@ -69,6 +71,8 @@ def detect_and_create_incidents(engine, start_log_id, end_log_id):
         print(f"Error counting cluster stats: {e}")
         return
 
+    print(f"Batch cluster counts: {batch_stats}")
+
     # 2. Save stats to history
     save_cluster_stats(engine, batch_stats)
 
@@ -78,15 +82,28 @@ def detect_and_create_incidents(engine, start_log_id, end_log_id):
 
     # 4. Load volume model and detect anomalies
     vol_detector = VolumeAnomalyDetector(window_size=5)
-    vol_detector.load("models/production")
+    vol_detector.load("scripts/models/production")
     anomalous_clusters = vol_detector.detect_anomalies(history_df)
 
-    # 5. Create incidents
+    # 5. Sanity guard: if anomaly ratio is unreasonably high, skip
+    total_evaluated = history_df["cluster_id"].nunique()
+    MAX_ANOMALY_RATIO = 0.3
+    if total_evaluated > 0 and len(anomalous_clusters) > 0:
+        ratio = len(anomalous_clusters) / total_evaluated
+        if ratio > MAX_ANOMALY_RATIO:
+            print(
+                f"⚠️ Anomaly ratio too high: {len(anomalous_clusters)}/{total_evaluated} "
+                f"({ratio:.0%}). Likely model miscalibration. Skipping incident creation."
+            )
+            return
+
+    # 6. Create incidents
     if anomalous_clusters:
-        print(f"Detected {len(anomalous_clusters)} anomalous clusters!")
+        print(f"🚨 Creating incidents for {len(anomalous_clusters)} anomalous clusters.")
         for cid in anomalous_clusters:
             # Only alert if the cluster ACTUALLY appeared in this current batch
             if cid in batch_stats:
                 create_incident(engine, cid, reason="Volume Anomaly")
     else:
-        print("No volume anomalies detected.")
+        print("✅ No volume anomalies detected.")
+

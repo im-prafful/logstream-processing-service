@@ -28,7 +28,7 @@ from sentence_transformers import SentenceTransformer
 from sqlalchemy import text
 
 # CONSTANTS FOR BLUE/GREEN DEPLOYMENT
-PRODUCTION_DIR = "models/production"
+PRODUCTION_DIR = "scripts/models/production"
 STAGING_DIR = "models/staging"
 
 # Temporary CSV file written during the training loop.
@@ -39,7 +39,9 @@ STAGING_CSV = "staging/embeddings_staging.csv"
 # Uses your NVIDIA RTX 3050 (CUDA) when running locally.
 # Falls back to CPU gracefully if CUDA is not available.
 device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"[DEVICE] Using: {device.upper()}  |  CUDA available: {torch.cuda.is_available()}")
+print(
+    f"[DEVICE] Using: {device.upper()}  |  CUDA available: {torch.cuda.is_available()}"
+)
 if device == "cuda":
     print(f"[DEVICE] GPU: {torch.cuda.get_device_name(0)}")
 
@@ -58,7 +60,9 @@ def batch_encode_texts(texts: list, batch_size: int = 64):
     Returns a list of numpy arrays (one embedding per text).
     batch_size=64 fits comfortably in RTX 3050 4GB VRAM.
     """
-    print(f"[EMBED] Encoding {len(texts)} texts on {device.upper()} (batch_size={batch_size})...")
+    print(
+        f"[EMBED] Encoding {len(texts)} texts on {device.upper()} (batch_size={batch_size})..."
+    )
     embeddings = embedding_model.encode(
         texts,
         batch_size=batch_size,
@@ -117,14 +121,14 @@ def main():
         for idx, (_, log) in enumerate(df_logs.iterrows()):
             log_id = log["log_id"]
             app_id = log["app_id"]
-            level  = log["level"]
+            level = log["level"]
             source = log["source"]
 
             # Use the pre-computed embedding for this row
             embedding = all_embeddings[idx]
 
             sem_id = vector_engine.get_semantic_group(embedding, log_id)
-            feats  = build_feature_dict(log["level"], log["source"], embedding, sem_id)
+            feats = build_feature_dict(log["level"], log["source"], embedding, sem_id)
 
             pipeline.learn_one(feats)
             proc_feats = pipeline.transform_one(feats)
@@ -132,14 +136,18 @@ def main():
             cluster_id = model.predict_one(proc_feats)
 
             # Write this row to the CSV immediately (crash-safe)
-            writer.writerow({
-                "log_id":    log_id,
-                "app_id":    app_id,
-                "embedding": json.dumps(embedding.tolist()),  # store vector as JSON string
-                "cluster_id": cluster_id,
-                "level":     level,
-                "source":    source,
-            })
+            writer.writerow(
+                {
+                    "log_id": log_id,
+                    "app_id": app_id,
+                    "embedding": json.dumps(
+                        embedding.tolist()
+                    ),  # store vector as JSON string
+                    "cluster_id": cluster_id,
+                    "level": level,
+                    "source": source,
+                }
+            )
 
     print(f"[CSV] Finished writing staging file.")
 
@@ -150,12 +158,12 @@ def main():
     # Deserialise the embedding JSON strings back into Python lists
     embedding_rows = [
         {
-            "log_id":    row["log_id"],
-            "app_id":    row["app_id"],
+            "log_id": row["log_id"],
+            "app_id": row["app_id"],
             "embedding": json.loads(row["embedding"]),
             "cluster_id": row["cluster_id"],
-            "level":     row["level"],
-            "source":    row["source"],
+            "level": row["level"],
+            "source": row["source"],
         }
         for _, row in df_staging.iterrows()
     ]
@@ -164,14 +172,18 @@ def main():
         for _, row in df_staging.iterrows()
     ]
 
-    insert_embeddings_sql = text("""
+    insert_embeddings_sql = text(
+        """
         INSERT INTO log_embeddings (log_id, app_id, embedding, cluster_id, level, source)
         VALUES (:log_id, :app_id, :embedding, :cluster_id, :level, :source)
         ON CONFLICT (log_id) DO NOTHING;
-    """)
-    update_logs_sql = text("""
+    """
+    )
+    update_logs_sql = text(
+        """
         UPDATE logs SET cluster_id = :cluster_id WHERE log_id = :log_id;
-    """)
+    """
+    )
 
     with engine.begin() as conn:
         conn.execute(insert_embeddings_sql, embedding_rows)

@@ -22,7 +22,7 @@ from src.ml import (
     load_model,
 )
 
-PRODUCTION_DIR = "models/production"
+PRODUCTION_DIR = "scripts/models/production"
 
 
 def main():
