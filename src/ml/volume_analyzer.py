@@ -119,19 +119,7 @@ class VolumeAnomalyDetector:
         if history_df.empty:
             return []
 
-<<<<<<< HEAD
-        # Check max depth of history (e.g., do we have 5 batches yet?)
-        max_history_depth = history_df.groupby("cluster_id").size().max()
-        if max_history_depth < self.window_size:
-            print(
-                f"[WAIT] System Warming Up... (Current Depth: {max_history_depth}/{self.window_size})"
-            )
-            return []
-
-        # 2. Extract Features
-=======
         # 2. Extract Features (per-cluster filtering happens inside _extract_features)
->>>>>>> 97500b0fd26a3000b4281d8c231a9effdf5c3a6c
         X, cluster_ids = self._extract_features(history_df)
 
         total_clusters = history_df["cluster_id"].nunique()

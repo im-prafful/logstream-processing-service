@@ -8,7 +8,7 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
         """
             SELECT 1
             FROM incidents
-            WHERE cluster_id = :cid AND status IN ('OPEN', 'NEW')
+            WHERE cluster_id = :cid AND status IN ('INPROGRESS', 'NEW')
             LIMIT 1
         """
     )
@@ -17,7 +17,7 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
         """
             UPDATE incidents
             SET updated_at = NOW()
-            WHERE cluster_id = :cid AND status IN ('OPEN', 'NEW')
+            WHERE cluster_id = :cid AND status IN ('INPROGRESS', 'NEW')
         """
     )
 
