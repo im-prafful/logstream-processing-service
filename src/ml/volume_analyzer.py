@@ -24,7 +24,7 @@ class VolumeAnomalyDetector:
         )
         self.is_trained = False
 
-    def _extract_features(self, history_df):
+    def _extract_features(self, history_df, is_training=False):
         """
         Converts raw history (log counts) into ML features for the model.
 
@@ -52,23 +52,37 @@ class VolumeAnomalyDetector:
             group = group.sort_values("batch_timestamp")
             counts = group["log_count"].values
 
-            # 1. Current Volume (The latest entry)
-            current_vol = counts[-1]
+            if is_training:
+                # Generate a feature vector for every possible rolling window in this cluster's history
+                for i in range(1, len(counts)):
+                    window = counts[max(0, i - self.window_size + 1):i + 1]
+                    current_vol = window[-1]
+                    prev_vol = window[-2]
+                    velocity = current_vol - prev_vol
+                    rolling_avg = np.mean(window)
+                    std_dev = np.std(window) + 1e-5
+                    deviation = (current_vol - rolling_avg) / std_dev
+                    
+                    features.append([current_vol, velocity, rolling_avg, deviation])
+                    cluster_ids.append(cid)
+            else:
+                # 1. Current Volume (The latest entry)
+                current_vol = counts[-1]
 
-            # 2. Velocity (Current - Previous)
-            prev_vol = counts[-2]
-            velocity = current_vol - prev_vol
+                # 2. Velocity (Current - Previous)
+                prev_vol = counts[-2]
+                velocity = current_vol - prev_vol
 
-            # 3. Rolling Average (Mean of the visible window)
-            rolling_avg = np.mean(counts)
+                # 3. Rolling Average (Mean of the visible window)
+                rolling_avg = np.mean(counts)
 
-            # 4. Deviation (Z-Score approximation)
-            # Add small epsilon (1e-5) to prevent division by zero if std_dev is 0
-            std_dev = np.std(counts) + 1e-5
-            deviation = (current_vol - rolling_avg) / std_dev
+                # 4. Deviation (Z-Score approximation)
+                # Add small epsilon (1e-5) to prevent division by zero if std_dev is 0
+                std_dev = np.std(counts) + 1e-5
+                deviation = (current_vol - rolling_avg) / std_dev
 
-            features.append([current_vol, velocity, rolling_avg, deviation])
-            cluster_ids.append(cid)
+                features.append([current_vol, velocity, rolling_avg, deviation])
+                cluster_ids.append(cid)
 
         return np.array(features), cluster_ids
 
@@ -77,18 +91,18 @@ class VolumeAnomalyDetector:
         Trains the Isolation Forest on simulated or real historical data.
         """
         print("Extracting features for Volume Model training...")
-        X, _ = self._extract_features(historical_data_df)
+        X, _ = self._extract_features(historical_data_df, is_training=True)
 
         if len(X) < 10:
             print(
-                f"⚠️ Not enough data to train Volume Model (Got {len(X)} samples, need ~10+). Skipping."
+                f"[WARNING] Not enough data to train Volume Model (Got {len(X)} samples, need ~10+). Skipping."
             )
             return
 
         print(f"Training Volume Model on {len(X)} samples...")
         self.model.fit(X)
         self.is_trained = True
-        print("✅ Volume Model Trained successfully.")
+        print("Volume Model Trained successfully.")
 
     def detect_anomalies(self, history_df):
         """
@@ -96,7 +110,7 @@ class VolumeAnomalyDetector:
         Returns: List of cluster_ids that are anomalous.
         """
         if not self.is_trained:
-            print("⚠️ Volume Model is not trained. Skipping inference.")
+            print("[WARNING] Volume Model is not trained. Skipping inference.")
             return []
 
         # 1. Check Data Sufficiency (The "Warm Up" Check)
@@ -108,7 +122,7 @@ class VolumeAnomalyDetector:
         max_history_depth = history_df.groupby("cluster_id").size().max()
         if max_history_depth < self.window_size:
             print(
-                f"⏳ System Warming Up... (Current Depth: {max_history_depth}/{self.window_size})"
+                f"[WAIT] System Warming Up... (Current Depth: {max_history_depth}/{self.window_size})"
             )
             return []
 
@@ -146,4 +160,4 @@ class VolumeAnomalyDetector:
             self.is_trained = True
             print(f"Volume model loaded from {path}")
         else:
-            print("⚠️ No Volume model found. Inference will be skipped.")
+            print("[WARNING] No Volume model found. Inference will be skipped.")

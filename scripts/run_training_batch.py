@@ -242,7 +242,7 @@ def main():
 
     os.rename(STAGING_DIR, PRODUCTION_DIR)  # Move new model to live slot
 
-    print(f"✅ SWAP COMPLETE. New model is live in {PRODUCTION_DIR}")
+    print(f"[SUCCESS] SWAP COMPLETE. New model is live in {PRODUCTION_DIR}")
 
 
 if __name__ == "__main__":

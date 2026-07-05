@@ -75,6 +75,7 @@ def detect_and_create_incidents(engine, start_log_id, end_log_id):
     # 3. Fetch history window
     history_df = fetch_cluster_history(engine, window_size=5)
 
+
     # 4. Load volume model and detect anomalies
     vol_detector = VolumeAnomalyDetector(window_size=5)
     vol_detector.load("models/production")
@@ -84,6 +85,8 @@ def detect_and_create_incidents(engine, start_log_id, end_log_id):
     if anomalous_clusters:
         print(f"Detected {len(anomalous_clusters)} anomalous clusters!")
         for cid in anomalous_clusters:
-            create_incident(engine, cid, reason="Volume Anomaly")
+            # Only alert if the cluster ACTUALLY appeared in this current batch
+            if cid in batch_stats:
+                create_incident(engine, cid, reason="Volume Anomaly")
     else:
         print("No volume anomalies detected.")
