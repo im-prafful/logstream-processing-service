@@ -19,6 +19,7 @@ joblib
 
 # --- Configuration ---
 python-dotenv
+boto3
 
 # --- API Server (For Future Use) ---
 fastapi

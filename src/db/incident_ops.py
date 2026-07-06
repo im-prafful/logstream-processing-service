@@ -1,6 +1,37 @@
+import json
+import boto3
 from sqlalchemy import text
 
 from src.db.cluster_ops import save_cluster_stats, fetch_cluster_history
+
+def publish_anomaly_event(conn, cluster_id, reason):
+    try:
+        # 1. Fetch context (top 5 logs)
+        query = text("SELECT message FROM logs WHERE cluster_id = :cid ORDER BY log_id DESC LIMIT 5")
+        rows = conn.execute(query, {"cid": cluster_id}).fetchall()
+        logs = [row[0] for row in rows]
+        
+        # 2. Publish to EventBridge
+        client = boto3.client('events', region_name='ap-south-1')
+        detail = {
+            "cluster_id": cluster_id,
+            "reason": reason,
+            "sample_logs": logs
+        }
+        
+        response = client.put_events(
+            Entries=[
+                {
+                    'Source': 'com.logstream.processing',
+                    'DetailType': 'VolumeAnomalyDetected',
+                    'Detail': json.dumps(detail),
+                    'EventBusName': 'Logstream-alert-bus'
+                }
+            ]
+        )
+        print(f"Published EventBridge anomaly event for Cluster {cluster_id}")
+    except Exception as e:
+        print(f"Failed to publish EventBridge event for Cluster {cluster_id}: {e}")
 
 
 def create_incident(engine, cluster_id, reason="Volume Anomaly"):
@@ -39,6 +70,9 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
 
         conn.execute(insert_query, {"cid": cluster_id})
         print(f"New Incident CREATED for Cluster {cluster_id} [{reason}]")
+        
+        # Instantly publish the rich-context event to EventBridge!
+        publish_anomaly_event(conn, cluster_id, reason)
 
 
 def detect_and_create_incidents(engine, start_log_id, end_log_id):
