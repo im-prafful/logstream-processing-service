@@ -34,6 +34,31 @@ def publish_anomaly_event(conn, cluster_id, reason):
         print(f"Failed to publish EventBridge event for Cluster {cluster_id}: {e}")
 
 
+def determine_assigned_role(sample_logs: list) -> str:
+    """
+    Heuristically determines the best engineering team to handle the incident
+    based on the structural signatures of the sample logs.
+    """
+    dev_signatures = ["exception", "error:", "traceback", "nullpointer", "typeerror", "syntax"]
+    qa_signatures = ["test failed", "assertion", "timeout during test", "validation failed", "jest", "cypress"]
+    
+    dev_score = 0
+    qa_score = 0
+    
+    for log in sample_logs:
+        log_lower = str(log).lower()
+        if any(sig in log_lower for sig in dev_signatures):
+            dev_score += 1
+        if any(sig in log_lower for sig in qa_signatures):
+            qa_score += 1
+            
+    if dev_score > 0 and dev_score >= qa_score:
+        return "dev"
+    elif qa_score > 0 and qa_score > dev_score:
+        return "qa"
+        
+    return "sre"
+    
 def create_incident(engine, cluster_id, reason="Volume Anomaly"):
     check_query = text(
         """
@@ -55,7 +80,7 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
     insert_query = text(
         """
             INSERT INTO incidents (cluster_id,status,assigned_role,assigned_to,created_at,updated_at,resolved_at)
-            VALUES(:cid,'NEW','SRE',null,NOW(),null,null)
+            VALUES(:cid,'NEW',:role,null,NOW(),null,null)
         """
     )
 
@@ -68,8 +93,16 @@ def create_incident(engine, cluster_id, reason="Volume Anomaly"):
             )
             return
 
-        conn.execute(insert_query, {"cid": cluster_id})
-        print(f"New Incident CREATED for Cluster {cluster_id} [{reason}]")
+        # Fetch sample logs for heuristic routing (using 30 logs for high accuracy on the cluster)
+        log_query = text("SELECT message FROM logs WHERE cluster_id = :cid ORDER BY log_id DESC LIMIT 30")
+        log_rows = conn.execute(log_query, {"cid": cluster_id}).fetchall()
+        sample_logs = [row[0] for row in log_rows]
+        
+        # Determine the best role based on the clustered logs
+        assigned_role = determine_assigned_role(sample_logs)
+
+        conn.execute(insert_query, {"cid": cluster_id, "role": assigned_role})
+        print(f"New Incident CREATED for Cluster {cluster_id} [{reason}] -> Routed to {assigned_role.upper()}")
         
         # Instantly publish the rich-context event to EventBridge!
         publish_anomaly_event(conn, cluster_id, reason)
